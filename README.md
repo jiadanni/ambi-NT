@@ -16,99 +16,78 @@ Build a self-sustaining network that becomes more valuable as it grows, without 
 - **Forward Secrecy**: Ephemeral client keys ensure past sessions remain secure even if keys are compromised.
 - **Open Source**: Fully transparent, auditable, and forkable.
 
-## Current Status: Phase 0 - Smoke Test
+## Current Status: Phase 1 - Trusted Network 🚀
 
-Phase 0 validates the core cryptographic design with a simple client-server setup.
+Phase 1 makes the system production-ready for deployment with friends.
 
 **What's Working:**
 - ✅ End-to-end encryption with NaCl/libsodium
-- ✅ Node server that processes encrypted prompts
-- ✅ CLI client for submitting queries
+- ✅ **Dockerized one-command deployment**
+- ✅ **Beautiful web client with voice input**
+- ✅ CLI client for power users
+- ✅ Tailscale integration for easy networking
 - ✅ Zero plaintext leakage (verified by tests)
+- ✅ Production-ready monitoring and logging
 
 **Coming Next:**
-- Phase 1: Dockerized deployment, web client, voice input
-- Phase 2: Coordinator service, node discovery, priority tokens
+- Phase 2: Coordinator service, node discovery, priority tokens, 100+ users
 - Phase 3: Federation, protocol specification, true autonomy
 
-## Quick Start
+## Quick Start (Docker - Recommended)
 
-### Prerequisites
+**One command to rule them all:**
 
-- Python 3.11 or higher
-- [Ollama](https://ollama.com/) installed locally
-- 8GB+ RAM recommended
+```bash
+git clone https://github.com/yourusername/ambient-intelligence.git
+cd ambient-intelligence
+./scripts/docker-setup.sh
+```
 
-### Installation
+This will:
+- ✅ Check requirements
+- ✅ Generate crypto keys
+- ✅ Build Docker images
+- ✅ Start node and web client
+- ✅ Pull Ollama model
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/ambient-intelligence.git
-   cd ambient-intelligence
-   ```
+**Access:**
+- 🌐 **Web Client**: http://localhost:8080
+- 🔧 **Node API**: http://localhost:8000
+- 💚 **Health Check**: http://localhost:8000/health
 
-2. **Install Ollama and pull a model:**
+### Quick Start (Manual)
+
+For developers who prefer manual setup:
+
+1. **Install Prerequisites:**
    ```bash
    curl -fsSL https://ollama.com/install.sh | sh
    ollama pull llama3:8b
    ```
 
-3. **Set up the node:**
+2. **Setup and Run:**
    ```bash
-   cd node
-   pip install -r requirements.txt
-
-   # Generate keypair
-   python crypto.py
-
-   # Copy the output to a new .env file in the project root
-   cd ..
-   cp .env.example .env
-   # Edit .env and paste the generated keys
+   ./scripts/setup.sh
+   ollama serve &
+   python node/server.py
    ```
 
-4. **Start Ollama:**
+3. **Use Web Client:**
    ```bash
-   ollama serve
+   # Serve the web client
+   cd client-web
+   python -m http.server 8080
+   # Open http://localhost:8080
    ```
 
-5. **Start the node (in a new terminal):**
-   ```bash
-   cd node
-   python server.py
-   ```
-
-6. **Install the CLI client (in another terminal):**
+4. **Or Use CLI Client:**
    ```bash
    cd client-cli
    pip install -r requirements.txt
-   ```
-
-7. **Submit your first query:**
-   ```bash
    python client.py "What is 2+2?"
    ```
 
-You should see output like:
-```
-Ambient Intelligence - Privacy-First AI
-============================================================
-Node: http://localhost:8000
-Prompt: What is 2+2?
-============================================================
-
-[Encrypting and submitting to http://localhost:8000...]
-[Job ID: 8b5c2e4a-9f3d-4c5e-a1b2-3d4e5f6a7b8c]
-[Waiting for response ........ ✓] (15.3s)
-
-============================================================
-Response:
-============================================================
-The answer is 4.
-
-2 + 2 = 4
-============================================================
-```
+**See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete installation guide.**
 
 ## Architecture
 
@@ -147,6 +126,7 @@ ambient-intelligence/
 │   ├── ollama_client.py   # Ollama interface
 │   ├── config.py          # Configuration management
 │   ├── models.py          # Data models
+│   ├── Dockerfile         # Docker image
 │   └── requirements.txt
 │
 ├── client-cli/            # Command-line client
@@ -154,12 +134,27 @@ ambient-intelligence/
 │   ├── crypto.py          # Client-side encryption
 │   └── requirements.txt
 │
-├── client-web/            # Web client (Phase 1+)
-├── coordinator/           # Coordinator service (Phase 2+)
-├── tests/                 # Test suite
-│   └── test_phase0.py    # Phase 0 tests
+├── client-web/            # Web client with voice input
+│   ├── index.html         # Beautiful modern UI
+│   └── 404.html
 │
-├── .env.example           # Configuration template
+├── coordinator/           # Coordinator service (Phase 2+)
+│
+├── scripts/               # Deployment scripts
+│   ├── docker-setup.sh    # One-command Docker deployment
+│   ├── setup.sh           # Manual setup helper
+│   └── verify_crypto.py   # Crypto verification
+│
+├── docs/                  # Documentation
+│   ├── DEPLOYMENT.md      # Full deployment guide
+│   └── TAILSCALE.md       # Tailscale integration
+│
+├── tests/                 # Test suite
+│   └── test_phase0.py    # Comprehensive crypto tests
+│
+├── docker-compose.yml     # Full stack deployment
+├── nginx.conf            # Web client server config
+├── .env.example          # Configuration template
 ├── .gitignore
 └── README.md
 ```
@@ -204,18 +199,21 @@ DEFAULT_NODE_URL=http://localhost:8000
 
 ## Development Roadmap
 
-### Phase 0: Smoke Test ✅ (Current)
+### Phase 0: Smoke Test ✅ (Complete)
 - [x] Core encryption working
 - [x] Node server operational
 - [x] CLI client functional
 - [x] Tests passing
 
-### Phase 1: Trusted Network (Weeks 2-3)
-- [ ] Dockerized node deployment
-- [ ] Web client
-- [ ] Voice input prototype
-- [ ] Tailscale integration guide
-- [ ] 10+ users onboarded
+### Phase 1: Trusted Network ✅ (Current - Complete!)
+- [x] Dockerized node deployment
+- [x] Web client with beautiful UI
+- [x] Voice input integrated
+- [x] Tailscale integration guide
+- [x] One-command setup scripts
+- [x] Comprehensive documentation
+- [ ] 10+ users onboarded (in progress)
+- [ ] 7 days continuous uptime (pending)
 
 ### Phase 2: Public Beta (Weeks 4-6)
 - [ ] Coordinator service
@@ -236,10 +234,10 @@ DEFAULT_NODE_URL=http://localhost:8000
 A: Most networks require you to trust the operator. Ambient Intelligence uses encryption so operators literally cannot see your data, even if they wanted to.
 
 **Q: Is this production-ready?**
-A: Not yet. Phase 0 is a proof-of-concept. Use at your own risk.
+A: Phase 1 is ready for trusted deployment with friends. Full production-readiness comes in Phase 2 with coordinator services and scaling.
 
 **Q: Can I run this on a VPS?**
-A: Yes! Phase 1 will include Docker deployment guides for VPS providers.
+A: Yes! See docs/DEPLOYMENT.md for complete VPS deployment guides. Docker makes it easy.
 
 **Q: What models are supported?**
 A: Any model supported by Ollama. Default is llama3:8b.

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Privacy-first decentralized AI inference">
+    <title>Ambient Intelligence - Privacy-First AI</title>
+
+    <!-- NaCl crypto library -->
+    <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tweetnacl-util@0.15.1/nacl-util.min.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #2a2a2a;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --accent-primary: #4a9eff;
+            --accent-hover: #3a8eef;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #ef4444;
+            --border: #333;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: var(--bg-secondary);
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent-primary), #60a5fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+
+        .container {
+            flex: 1;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+        }
+
+        .privacy-notice {
+            background: linear-gradient(135deg, rgba(74, 158, 255, 0.1), rgba(96, 165, 250, 0.05));
+            border: 1px solid rgba(74, 158, 255, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .privacy-notice h3 {
+            color: var(--accent-primary);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .privacy-notice ul {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .privacy-notice li {
+            margin: 0.25rem 0;
+            color: var(--text-secondary);
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 0.875rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.1);
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            min-width: 150px;
+            padding: 0.875rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(74, 158, 255, 0.3);
+        }
+
+        .btn-voice {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-voice:hover:not(:disabled) {
+            background: var(--border);
+        }
+
+        .btn-voice.recording {
+            background: var(--error);
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            border-left: 4px solid var(--accent-primary);
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        .status.error {
+            border-left-color: var(--error);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .status.success {
+            border-left-color: var(--success);
+            background: rgba(74, 222, 128, 0.1);
+        }
+
+        .response {
+            background: var(--bg-tertiary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 1.5rem;
+            white-space: pre-wrap;
+            border: 1px solid var(--border);
+            display: none;
+            line-height: 1.7;
+        }
+
+        .response.show {
+            display: block;
+        }
+
+        .response-header {
+            color: var(--accent-primary);
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .footer {
+            background: var(--bg-secondary);
+            padding: 1.5rem 2rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer a {
+            color: var(--accent-primary);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌐 Ambient Intelligence</h1>
+        <p>Privacy-First Decentralized AI Inference</p>
+    </div>
+
+    <div class="container">
+        <div class="privacy-notice">
+            <h3>🔒 Privacy Guarantee</h3>
+            <ul>
+                <li>✅ Your prompts are encrypted on your device before sending</li>
+                <li>✅ The node processes them without seeing the plaintext</li>
+                <li>✅ Nothing is saved - close this tab to erase your session</li>
+                <li>✅ No tracking, no analytics, no data collection</li>
+                <li>✅ Ephemeral keys provide forward secrecy</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <div class="input-group">
+                <label for="nodeUrl">Node URL:</label>
+                <input type="text" id="nodeUrl" value="http://localhost:8000"
+                       placeholder="http://localhost:8000">
+            </div>
+
+            <div class="input-group">
+                <label for="prompt">Your Question:</label>
+                <textarea id="prompt" placeholder="Ask anything..."></textarea>
+            </div>
+
+            <div class="button-group">
+                <button id="submitBtn" class="btn-primary" onclick="submitQuery()">
+                    <span id="submitText">Submit Query</span>
+                </button>
+                <button id="voiceBtn" class="btn-voice" onclick="toggleVoice()">
+                    🎤 Voice Input
+                </button>
+            </div>
+
+            <div id="status" class="status"></div>
+            <div id="response" class="response"></div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>
+            Built with privacy in mind. No tracking. No data collection.
+            <a href="https://github.com/yourusername/ambient-intelligence" target="_blank">View on GitHub</a>
+        </p>
+    </div>
+
+    <script>
+        let clientKeyPair = null;
+        let nodePublicKey = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recognition = null;
+
+        // Initialize ephemeral keypair on page load
+        window.addEventListener('load', () => {
+            clientKeyPair = nacl.box.keyPair();
+            console.log('🔐 Client keypair generated (ephemeral - not saved)');
+
+            // Initialize speech recognition if available
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById('prompt').value = transcript;
+                    showStatus('Transcribed! Ready to submit.', 'success');
+                    setTimeout(() => hideStatus(), 3000);
+                };
+
+                recognition.onerror = (event) => {
+                    showStatus(`Voice recognition error: ${event.error}`, 'error');
+                    stopRecording();
+                };
+
+                recognition.onend = () => {
+                    stopRecording();
+                };
+            }
+        });
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status show';
+            if (type === 'error') {
+                statusDiv.classList.add('error');
+            } else if (type === 'success') {
+                statusDiv.classList.add('success');
+            }
+        }
+
+        function hideStatus() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.classList.remove('show');
+        }
+
+        function showResponse(text, time) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.innerHTML = `
+                <div class="response-header">Response (${time}s):</div>
+                ${escapeHtml(text)}
+            `;
+            responseDiv.classList.add('show');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function getNodePublicKey(nodeUrl) {
+            const response = await fetch(`${nodeUrl}/pubkey`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const data = await response.json();
+            return nacl.util.decodeBase64(data.public_key);
+        }
+
+        function encryptForNode(message, nodePubKey) {
+            const messageBytes = nacl.util.decodeUTF8(message);
+            const nonce = nacl.randomBytes(nacl.box.nonceLength);
+            const encrypted = nacl.box(
+                messageBytes,
+                nonce,
+                nodePubKey,
+                clientKeyPair.secretKey
+            );
+
+            // Combine nonce + ciphertext
+            const fullMessage = new Uint8Array(nonce.length + encrypted.length);
+            fullMessage.set(nonce);
+            fullMessage.set(encrypted, nonce.length);
+
+            return nacl.util.encodeBase64(fullMessage);
+        }
+
+        function decryptFromNode(encryptedBase64, nodePubKey) {
+            const fullMessage = nacl.util.decodeBase64(encryptedBase64);
+            const nonce = fullMessage.slice(0, nacl.box.nonceLength);
+            const ciphertext = fullMessage.slice(nacl.box.nonceLength);
+
+            const decrypted = nacl.box.open(
+                ciphertext,
+                nonce,
+                nodePubKey,
+                clientKeyPair.secretKey
+            );
+
+            if (!decrypted) {
+                throw new Error('Decryption failed - message may be corrupted or tampered with');
+            }
+
+            return nacl.util.encodeUTF8(decrypted);
+        }
+
+        async function submitQuery() {
+            const nodeUrl = document.getElementById('nodeUrl').value.replace(/\/$/, '');
+            const prompt = document.getElementById('prompt').value.trim();
+
+            if (!prompt) {
+                showStatus('Please enter a prompt', 'error');
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            const submitText = document.getElementById('submitText');
+            submitBtn.disabled = true;
+            document.getElementById('response').classList.remove('show');
+
+            try {
+                submitText.innerHTML = '<span class="spinner"></span> Connecting...';
+                showStatus('Fetching node public key...');
+                nodePublicKey = await getNodePublicKey(nodeUrl);
+
+                submitText.innerHTML = '<span class="spinner"></span> Encrypting...';
+                showStatus('Encrypting prompt...');
+                const encryptedPrompt = encryptForNode(prompt, nodePublicKey);
+                const clientPubKeyBase64 = nacl.util.encodeBase64(clientKeyPair.publicKey);
+
+                submitText.innerHTML = '<span class="spinner"></span> Submitting...';
+                showStatus('Submitting to node...');
+                const submitResponse = await fetch(`${nodeUrl}/submit`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        encrypted_prompt: encryptedPrompt,
+                        client_pubkey: clientPubKeyBase64
+                    })
+                });
+
+                if (!submitResponse.ok) {
+                    const errorText = await submitResponse.text();
+                    throw new Error(`HTTP ${submitResponse.status}: ${errorText}`);
+                }
+
+                const submitData = await submitResponse.json();
+                const jobId = submitData.job_id;
+
+                submitText.innerHTML = '<span class="spinner"></span> Processing...';
+                showStatus(`Job submitted (${jobId.substring(0, 8)}...). Waiting for response...`);
+
+                // Poll for result
+                const startTime = Date.now();
+                let dots = 0;
+
+                while (true) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                    const statusResponse = await fetch(`${nodeUrl}/status/${jobId}`);
+                    if (!statusResponse.ok) {
+                        throw new Error(`HTTP ${statusResponse.status}`);
+                    }
+
+                    const statusData = await statusResponse.json();
+
+                    if (statusData.status === 'complete') {
+                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                        showStatus(`Response received in ${elapsed}s. Decrypting...`, 'success');
+
+                        const decrypted = decryptFromNode(
+                            statusData.encrypted_response,
+                            nodePublicKey
+                        );
+
+                        showResponse(decrypted, elapsed);
+                        showStatus(`✅ Complete! (${elapsed}s)`, 'success');
+                        break;
+
+                    } else if (statusData.status === 'failed') {
+                        const errorMsg = statusData.error_message || 'Unknown error';
+                        throw new Error(`Job failed: ${errorMsg}`);
+
+                    } else {
+                        // Still pending/running
+                        dots = (dots + 1) % 4;
+                        showStatus(`Processing${'.'.repeat(dots)}`);
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`❌ Error: ${error.message}`, 'error');
+
+            } finally {
+                submitBtn.disabled = false;
+                submitText.textContent = 'Submit Query';
+            }
+        }
+
+        async function toggleVoice() {
+            const voiceBtn = document.getElementById('voiceBtn');
+
+            if (!recognition) {
+                showStatus('Voice recognition not supported in this browser', 'error');
+                return;
+            }
+
+            if (voiceBtn.classList.contains('recording')) {
+                // Stop recording
+                recognition.stop();
+                stopRecording();
+            } else {
+                // Start recording
+                try {
+                    voiceBtn.classList.add('recording');
+                    voiceBtn.textContent = '⏹️ Stop Recording';
+                    showStatus('🎤 Listening... Speak now!');
+                    recognition.start();
+                } catch (error) {
+                    showStatus(`Voice error: ${error.message}`, 'error');
+                    stopRecording();
+                }
+            }
+        }
+
+        function stopRecording() {
+            const voiceBtn = document.getElementById('voiceBtn');
+            voiceBtn.classList.remove('recording');
+            voiceBtn.textContent = '🎤 Voice Input';
+        }
+
+        // Allow Enter to submit (Ctrl+Enter for newline in textarea)
+        document.getElementById('prompt').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+    </script>
+</body>
+</html>
