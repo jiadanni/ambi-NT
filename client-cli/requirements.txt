@@ -1,0 +1,10 @@
+# Ambient Intelligence CLI Client - Dependencies
+
+# Cryptography
+PyNaCl==1.5.0
+
+# HTTP client
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
