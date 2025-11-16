@@ -1,0 +1,24 @@
+# Ambient Intelligence Coordinator - Dependencies
+
+# Web framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# Database
+SQLAlchemy==2.0.25
+psycopg2-binary==2.9.9  # PostgreSQL driver
+alembic==1.13.1  # Database migrations
+
+# Caching and rate limiting
+redis==5.0.1
+hiredis==2.3.2
+
+# HTTP client for federation
+aiohttp==3.9.1
+
+# JWT for priority tokens
+PyJWT==2.8.0
+
+# Utilities
+python-dotenv==1.0.0

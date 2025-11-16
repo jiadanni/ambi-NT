@@ -462,8 +462,25 @@
             return nacl.util.encodeUTF8(decrypted);
         }
 
+        async function discoverNode(coordinatorUrl) {
+            try {
+                const response = await fetch(`${coordinatorUrl}/nodes/discover?limit=5`);
+                if (!response.ok) return null;
+
+                const nodes = await response.json();
+                if (nodes.length === 0) return null;
+
+                // Pick node with lowest load
+                nodes.sort((a, b) => a.current_load - b.current_load);
+                return `http://${nodes[0].address}`;
+            } catch (error) {
+                console.error('Discovery failed:', error);
+                return null;
+            }
+        }
+
         async function submitQuery() {
-            const nodeUrl = document.getElementById('nodeUrl').value.replace(/\/$/, '');
+            let nodeUrl = document.getElementById('nodeUrl').value.replace(/\/$/, '');
             const prompt = document.getElementById('prompt').value.trim();
 
             if (!prompt) {

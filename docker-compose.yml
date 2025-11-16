@@ -63,8 +63,66 @@ services:
     depends_on:
       - node
 
+  # PostgreSQL Database (Phase 2+)
+  postgres:
+    image: postgres:15-alpine
+    container_name: ambient-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-ambient}
+      - POSTGRES_USER=${POSTGRES_USER:-ambient}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ambient}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - ambient_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ambient"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (Phase 2+)
+  redis:
+    image: redis:7-alpine
+    container_name: ambient-redis
+    restart: unless-stopped
+    networks:
+      - ambient_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Coordinator Service (Phase 2+)
+  coordinator:
+    build:
+      context: ./coordinator
+      dockerfile: Dockerfile
+    container_name: ambient-coordinator
+    ports:
+      - "${COORDINATOR_PORT:-5000}:5000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ambient}:${POSTGRES_PASSWORD:-ambient}@postgres:5432/${POSTGRES_DB:-ambient}
+      - REDIS_URL=redis://redis:6379/0
+      - COORDINATOR_PORT=5000
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - ENABLE_DEBUG_LOGS=${ENABLE_DEBUG_LOGS:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ambient_network
+
 volumes:
   ollama_data:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:

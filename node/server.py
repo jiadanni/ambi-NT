@@ -324,7 +324,8 @@ async def send_heartbeat():
                     "public_key": crypto.get_public_key(),
                     "models": [config.ollama_model],
                     "max_concurrent": config.max_concurrent_jobs,
-                    "current_load": current_load
+                    "current_load": current_load,
+                    "version": "0.2.0"  # Phase 2 version
                 }
 
                 async with session.post(
@@ -347,11 +348,27 @@ def get_public_ip() -> str:
     """
     Get the public IP address of this node.
 
-    For Phase 0/1, this returns localhost.
-    For Phase 2+, this should return the actual public IP.
+    Tries multiple methods to detect the public IP:
+    1. Environment variable PUBLIC_IP
+    2. ifconfig.me service
+    3. Fallback to localhost
     """
-    # TODO: Implement actual public IP detection for Phase 2+
-    # For now, return localhost for local testing
+    # Method 1: Environment variable (for manual override)
+    env_ip = os.getenv("PUBLIC_IP")
+    if env_ip:
+        return env_ip
+
+    # Method 2: Try to detect public IP via external service
+    try:
+        import requests
+        response = requests.get("https://ifconfig.me/ip", timeout=5)
+        if response.status_code == 200:
+            return response.text.strip()
+    except:
+        pass
+
+    # Fallback: Return localhost (for local testing)
+    logger.warning("Could not detect public IP, using localhost")
     return "127.0.0.1"
 
 
