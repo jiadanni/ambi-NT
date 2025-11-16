@@ -16,22 +16,29 @@ Build a self-sustaining network that becomes more valuable as it grows, without 
 - **Forward Secrecy**: Ephemeral client keys ensure past sessions remain secure even if keys are compromised.
 - **Open Source**: Fully transparent, auditable, and forkable.
 
-## Current Status: Phase 1 - Trusted Network 🚀
+## Current Status: Phase 3 - Federation & Autonomy 🎉
 
-Phase 1 makes the system production-ready for deployment with friends.
+The network is now fully decentralized and autonomous with multi-coordinator federation!
 
 **What's Working:**
 - ✅ End-to-end encryption with NaCl/libsodium
-- ✅ **Dockerized one-command deployment**
-- ✅ **Beautiful web client with voice input**
-- ✅ CLI client for power users
-- ✅ Tailscale integration for easy networking
+- ✅ Dockerized one-command deployment
+- ✅ Beautiful web client with voice input
+- ✅ **Coordinator service with node discovery**
+- ✅ **Priority token system**
+- ✅ **Abuse detection and prevention**
+- ✅ **Multi-coordinator federation with gossip protocol**
+- ✅ **Formal protocol specification (v1.0)**
+- ✅ **Network monitoring dashboard**
+- ✅ **Community governance framework**
 - ✅ Zero plaintext leakage (verified by tests)
-- ✅ Production-ready monitoring and logging
 
-**Coming Next:**
-- Phase 2: Coordinator service, node discovery, priority tokens, 100+ users
-- Phase 3: Federation, protocol specification, true autonomy
+**What's New in Phase 3:**
+- 🔗 **Federation**: Multiple coordinators can sync to create unified network
+- 📋 **Protocol Spec**: Formal specification for alternative implementations
+- 🌐 **Monitoring Dashboard**: Real-time network health visualization
+- 📚 **Complete API docs**: Full documentation for all endpoints
+- 🏛️ **Governance**: Community-driven decision making framework
 
 ## Quick Start (Docker - Recommended)
 
@@ -52,8 +59,11 @@ This will:
 
 **Access:**
 - 🌐 **Web Client**: http://localhost:8080
+- 📊 **Network Dashboard**: http://localhost:8080/dashboard.html
 - 🔧 **Node API**: http://localhost:8000
+- 🏢 **Coordinator API**: http://localhost:5000
 - 💚 **Health Check**: http://localhost:8000/health
+- 📈 **Network Stats**: http://localhost:5000/stats
 
 ### Quick Start (Manual)
 
@@ -91,22 +101,55 @@ For developers who prefer manual setup:
 
 ## Architecture
 
+### Complete Network Architecture (Phase 3)
+
 ```
-┌─────────────┐                    ┌──────────────┐
-│   Client    │                    │     Node     │
-│             │                    │              │
-│  1. Generate├───── Encrypted ───→│  3. Decrypt  │
-│  ephemeral  │      Prompt        │  with node   │
-│  keypair    │                    │  private key │
-│             │                    │              │
-│  2. Encrypt │                    │  4. Process  │
-│  prompt with│                    │  with Ollama │
-│  node pubkey│                    │              │
-│             │                    │  5. Encrypt  │
-│  6. Decrypt │◄─── Encrypted ─────┤  response    │
-│  response   │      Response      │  with client │
-│             │                    │  pubkey      │
-└─────────────┘                    └──────────────┘
+┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+│ Coordinator  │◄──────► │ Coordinator  │◄──────► │ Coordinator  │
+│   (US-East)  │  Gossip │   (EU-West)  │  Gossip │  (Asia-Pac)  │
+│              │ Protocol│              │ Protocol│              │
+└──────┬───────┘         └──────┬───────┘         └──────┬───────┘
+       │                        │                        │
+       │ Heartbeats             │                        │
+       │ & Discovery            │                        │
+       │                        │                        │
+    ┌──▼────┐  ┌─────┐      ┌──▼────┐  ┌─────┐      ┌──▼────┐
+    │ Node  │  │Node │      │ Node  │  │Node │      │ Node  │
+    │   1   │  │  2  │      │   3   │  │  4  │      │   5   │
+    └───────┘  └─────┘      └───────┘  └─────┘      └───────┘
+       ▲                        ▲                        ▲
+       │ Encrypted Jobs         │                        │
+       │                        │                        │
+    ┌──┴───────────────────────┴────────────────────────┴───┐
+    │                      Clients                           │
+    │  (Web, CLI, Mobile - with ephemeral encryption keys)   │
+    └────────────────────────────────────────────────────────┘
+```
+
+### Request Flow (Client → Node)
+
+```
+1. Client queries Coordinator for available nodes
+2. Coordinator returns list sorted by uptime & load
+3. Client generates ephemeral keypair
+4. Client encrypts prompt with Node's public key
+5. Client submits encrypted job to Node
+6. Node decrypts prompt (in memory only)
+7. Node processes with Ollama
+8. Node encrypts response with Client's public key
+9. Client retrieves and decrypts response
+10. Client discards ephemeral key
+```
+
+### Federation Sync (Coordinator ↔ Coordinator)
+
+```
+Every 5 minutes:
+1. Each Coordinator queries peers for node lists
+2. Merge remote nodes with local database
+3. Deduplicate by node_id
+4. Resolve conflicts (prefer most recent heartbeat)
+5. Result: Unified network view across all coordinators
 ```
 
 ### Privacy Guarantees
@@ -121,11 +164,20 @@ For developers who prefer manual setup:
 ```
 ambient-intelligence/
 ├── node/                   # Node server components
-│   ├── server.py          # FastAPI server
-│   ├── crypto.py          # Encryption/decryption
+│   ├── server.py          # FastAPI server with heartbeats
+│   ├── crypto.py          # Encryption/decryption (NaCl)
 │   ├── ollama_client.py   # Ollama interface
 │   ├── config.py          # Configuration management
 │   ├── models.py          # Data models
+│   ├── Dockerfile         # Docker image
+│   └── requirements.txt
+│
+├── coordinator/           # Coordinator service (Phase 2+)
+│   ├── server.py          # Discovery & federation API
+│   ├── federation.py      # Gossip protocol implementation
+│   ├── models.py          # Database models (SQLAlchemy)
+│   ├── database.py        # Database setup and sessions
+│   ├── config.py          # Coordinator configuration
 │   ├── Dockerfile         # Docker image
 │   └── requirements.txt
 │
@@ -134,11 +186,13 @@ ambient-intelligence/
 │   ├── crypto.py          # Client-side encryption
 │   └── requirements.txt
 │
-├── client-web/            # Web client with voice input
-│   ├── index.html         # Beautiful modern UI
+├── client-web/            # Web clients
+│   ├── index.html         # Main UI with voice input
+│   ├── dashboard.html     # Network monitoring dashboard
 │   └── 404.html
 │
-├── coordinator/           # Coordinator service (Phase 2+)
+├── protocol/              # Protocol specification (Phase 3)
+│   └── SPECIFICATION.md   # Formal protocol v1.0
 │
 ├── scripts/               # Deployment scripts
 │   ├── docker-setup.sh    # One-command Docker deployment
@@ -147,7 +201,9 @@ ambient-intelligence/
 │
 ├── docs/                  # Documentation
 │   ├── DEPLOYMENT.md      # Full deployment guide
-│   └── TAILSCALE.md       # Tailscale integration
+│   ├── TAILSCALE.md       # Tailscale integration
+│   ├── API.md             # Complete API documentation
+│   └── GOVERNANCE.md      # Community governance
 │
 ├── tests/                 # Test suite
 │   └── test_phase0.py    # Comprehensive crypto tests
@@ -197,6 +253,54 @@ DEFAULT_NODE_URL=http://localhost:8000
 
 **Important**: Never commit your `.env` file! It contains your private key.
 
+## Federation Setup (Phase 3)
+
+To run a coordinator that federates with others:
+
+```bash
+# Enable federation
+FEDERATION_ENABLED=true
+
+# Configure peer coordinators (comma-separated)
+PEER_COORDINATORS=https://coord1.example.com,https://coord2.example.com
+
+# Sync interval (default: 300 seconds = 5 minutes)
+FEDERATION_SYNC_INTERVAL=300
+```
+
+**How Federation Works**:
+1. Each coordinator maintains its own database of nodes
+2. Every 5 minutes, coordinators query their peers for node lists
+3. Nodes are merged and deduplicated by `node_id`
+4. Conflicts are resolved using most recent heartbeat
+5. Result: All coordinators share a unified view of the network
+
+**See [protocol/SPECIFICATION.md](protocol/SPECIFICATION.md#6-federation-protocol)** for complete federation protocol details.
+
+## API Documentation
+
+Complete API documentation is available:
+
+- **[docs/API.md](docs/API.md)**: Full API reference for nodes and coordinators
+- **[protocol/SPECIFICATION.md](protocol/SPECIFICATION.md)**: Formal protocol specification v1.0
+- **[docs/GOVERNANCE.md](docs/GOVERNANCE.md)**: Community governance and contribution guidelines
+
+**Quick API Examples**:
+
+```bash
+# Discover available nodes
+curl http://localhost:5000/nodes/discover?limit=5
+
+# Check network statistics
+curl http://localhost:5000/stats
+
+# Get federation status
+curl http://localhost:5000/federation/peers
+
+# Check node health
+curl http://localhost:8000/health
+```
+
 ## Development Roadmap
 
 ### Phase 0: Smoke Test ✅ (Complete)
@@ -205,28 +309,41 @@ DEFAULT_NODE_URL=http://localhost:8000
 - [x] CLI client functional
 - [x] Tests passing
 
-### Phase 1: Trusted Network ✅ (Current - Complete!)
+### Phase 1: Trusted Network ✅ (Complete)
 - [x] Dockerized node deployment
 - [x] Web client with beautiful UI
 - [x] Voice input integrated
 - [x] Tailscale integration guide
 - [x] One-command setup scripts
 - [x] Comprehensive documentation
-- [ ] 10+ users onboarded (in progress)
-- [ ] 7 days continuous uptime (pending)
 
-### Phase 2: Public Beta (Weeks 4-6)
-- [ ] Coordinator service
-- [ ] Node discovery
-- [ ] Priority token system
-- [ ] Abuse reporting
+### Phase 2: Public Beta ✅ (Complete)
+- [x] Coordinator service with PostgreSQL & Redis
+- [x] Node discovery and registration
+- [x] Priority token system with JWT
+- [x] Abuse reporting and IP blocking
+- [x] Network statistics and health monitoring
+- [x] Heartbeat mechanism for node tracking
+- [x] Docker Compose orchestration
+
+### Phase 3: Federation & Autonomy ✅ (Complete!)
+- [x] **Formal protocol specification v1.0**
+- [x] **Coordinator federation with gossip protocol**
+- [x] **Multi-coordinator node synchronization**
+- [x] **Network monitoring dashboard**
+- [x] **Complete API documentation**
+- [x] **Community governance framework**
+- [x] Conflict resolution for federated nodes
+- [x] Federation health tracking
+
+### Phase 4: Ecosystem Growth (Community-Driven)
+- [ ] Alternative client implementations (Rust, Go, mobile)
 - [ ] 100+ daily active users
-
-### Phase 3: Federation & Autonomy (Weeks 7-8+)
-- [ ] Protocol specification
-- [ ] Coordinator federation
-- [ ] Community governance
-- [ ] Alternative implementations
+- [ ] Community-run coordinators
+- [ ] Protocol improvements and versioning
+- [ ] Additional language bindings
+- [ ] Performance benchmarks
+- [ ] Security audits
 
 ## FAQ
 
@@ -253,15 +370,28 @@ A: Yes, under the MIT license. Fork it, modify it, use it however you want.
 
 ## Contributing
 
-We welcome contributions! Please:
+We welcome contributions of all kinds! This is a community-driven project.
 
+**Quick Start**:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
 4. Write tests
 5. Submit a pull request
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+**See [docs/GOVERNANCE.md](docs/GOVERNANCE.md) for**:
+- Contribution guidelines
+- Code quality standards
+- Decision-making process
+- Code of conduct
+- Community roles
+
+**High Priority Contributions**:
+- Security audits and improvements
+- Alternative client implementations (Rust, Go, mobile)
+- Documentation improvements
+- Performance optimizations
+- Running public coordinators
 
 ## Security
 

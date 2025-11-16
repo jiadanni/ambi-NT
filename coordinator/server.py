@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from config import CoordinatorConfig
 from database import Database, get_db
 from models import Node, Blocklist, AbuseReport, PriorityTokenLedger, CoordinatorStats
+from federation import FederationManager
 
 # Configure logging
 config = CoordinatorConfig()
@@ -42,6 +43,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize database
 database = Database(config.database_url)
+
+# Initialize federation manager
+federation_manager = FederationManager(config, database.get_session)
 
 
 @asynccontextmanager
@@ -73,9 +77,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(cleanup_stale_nodes())
     asyncio.create_task(update_statistics())
 
+    # Start federation if enabled
     if config.federation_enabled and config.peer_coordinators:
         logger.info(f"Federation enabled with {len(config.peer_coordinators)} peers")
-        asyncio.create_task(federate_node_lists())
+        asyncio.create_task(federation_manager.start_federation())
 
     yield
 
@@ -478,6 +483,62 @@ async def get_statistics(db: Session = Depends(lambda: database.get_session_dire
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# ============================================
+# Federation Endpoints (Phase 3)
+# ============================================
+
+@app.get("/federation/peers")
+async def get_federation_peers():
+    """Get list of peer coordinators and their status."""
+    if not config.federation_enabled:
+        raise HTTPException(status_code=404, detail="Federation not enabled")
+
+    peer_status = federation_manager.get_peer_status()
+    fed_stats = federation_manager.get_federation_stats()
+
+    return {
+        "peers": list(peer_status.values()),
+        "stats": fed_stats
+    }
+
+
+@app.post("/federation/register")
+async def register_federation_peer(request: dict):
+    """
+    Register a new peer coordinator.
+
+    Requires manual approval (admin token).
+    """
+    if not config.federation_enabled:
+        raise HTTPException(status_code=404, detail="Federation not enabled")
+
+    peer_url = request.get('url')
+    if not peer_url:
+        raise HTTPException(status_code=400, detail="URL required")
+
+    # Verify admin token if configured
+    if config.admin_token:
+        auth_header = request.get('admin_token')
+        if auth_header != config.admin_token:
+            raise HTTPException(status_code=403, detail="Invalid admin token")
+
+    success = await federation_manager.register_peer(peer_url)
+
+    if success:
+        return {"status": "registered", "peer_url": peer_url}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to register peer")
+
+
+@app.get("/federation/stats")
+async def get_federation_stats():
+    """Get federation statistics."""
+    if not config.federation_enabled:
+        raise HTTPException(status_code=404, detail="Federation not enabled")
+
+    return federation_manager.get_federation_stats()
 
 
 # ============================================

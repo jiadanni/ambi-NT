@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambient Intelligence - Network Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px 0;
+            border-bottom: 2px solid #2a2a3e;
+        }
+
+        h1 {
+            font-size: 3em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 1.2em;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 10px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.healthy {
+            background: #4ade80;
+        }
+
+        .status-indicator.degraded {
+            background: #fbbf24;
+        }
+
+        .status-indicator.offline {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        }
+
+        .card h2 {
+            font-size: 1.2em;
+            margin-bottom: 16px;
+            color: #667eea;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .metric {
+            font-size: 3em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 10px 0;
+        }
+
+        .metric-label {
+            color: #888;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .node-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .node-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .node-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .node-id {
+            font-weight: 600;
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+        }
+
+        .node-models {
+            color: #888;
+            font-size: 0.85em;
+            margin-top: 4px;
+        }
+
+        .node-stats {
+            display: flex;
+            gap: 15px;
+            font-size: 0.85em;
+            margin-top: 8px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.8em;
+        }
+
+        .stat-value {
+            color: #e0e0e0;
+            font-weight: 600;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .peer-list {
+            margin-top: 10px;
+        }
+
+        .peer-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border-left: 3px solid #4ade80;
+        }
+
+        .peer-url {
+            font-weight: 600;
+            color: #4ade80;
+            margin-bottom: 6px;
+        }
+
+        .peer-stats {
+            display: flex;
+            gap: 15px;
+            font-size: 0.85em;
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1em;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .config-panel {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        label {
+            min-width: 150px;
+            color: #888;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 0.85em;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            border-left: 3px solid #ef4444;
+        }
+
+        .success-message {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            border-left: 3px solid #4ade80;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.5);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(102, 126, 234, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Ambient Intelligence</h1>
+            <div class="subtitle">
+                Network Dashboard
+                <span class="status-indicator" id="network-status"></span>
+            </div>
+        </header>
+
+        <div class="config-panel">
+            <div class="config-row">
+                <label for="coordinator-url">Coordinator URL:</label>
+                <input type="text" id="coordinator-url" placeholder="http://localhost:5000" value="http://localhost:5000">
+                <button class="btn-primary" onclick="saveConfig()">Save</button>
+            </div>
+            <div class="config-row">
+                <label>Auto-refresh:</label>
+                <select id="refresh-interval" onchange="updateRefreshInterval()">
+                    <option value="0">Disabled</option>
+                    <option value="5000">5 seconds</option>
+                    <option value="10000" selected>10 seconds</option>
+                    <option value="30000">30 seconds</option>
+                    <option value="60000">1 minute</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Network Health</h2>
+                <div class="metric" id="active-nodes">-</div>
+                <div class="metric-label">Active Nodes</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="health-progress" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>✅ Success Rate</h2>
+                <div class="metric" id="success-rate">-</div>
+                <div class="metric-label">Jobs Completed</div>
+            </div>
+
+            <div class="card">
+                <h2>⚡ Total Jobs</h2>
+                <div class="metric" id="total-jobs">-</div>
+                <div class="metric-label">All Time</div>
+            </div>
+
+            <div class="card">
+                <h2>🌐 Federation</h2>
+                <div class="metric" id="peer-count">-</div>
+                <div class="metric-label">Connected Peers</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card" style="grid-column: span 2;">
+                <h2>🖥️ Active Nodes</h2>
+                <div class="node-list" id="node-list">
+                    <p style="color: #666; text-align: center; padding: 20px;">Loading nodes...</p>
+                </div>
+            </div>
+
+            <div class="card" id="federation-card" style="display: none;">
+                <h2>🔗 Federation Peers</h2>
+                <div class="peer-list" id="peer-list">
+                    <p style="color: #666;">No peers configured</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-primary" onclick="refreshDashboard()">🔄 Refresh Now</button>
+            <button class="btn-secondary" onclick="clearCache()">🗑️ Clear Cache</button>
+            <button class="btn-secondary" onclick="exportStats()">📥 Export Stats</button>
+        </div>
+
+        <div class="timestamp" id="last-update">Last updated: Never</div>
+    </div>
+
+    <script>
+        let refreshTimer = null;
+        let coordinatorUrl = localStorage.getItem('coordinator-url') || 'http://localhost:5000';
+        let refreshInterval = parseInt(localStorage.getItem('refresh-interval')) || 10000;
+
+        // Initialize
+        document.getElementById('coordinator-url').value = coordinatorUrl;
+        document.getElementById('refresh-interval').value = refreshInterval;
+
+        // Load dashboard on startup
+        window.addEventListener('load', () => {
+            refreshDashboard();
+            updateRefreshInterval();
+        });
+
+        function saveConfig() {
+            coordinatorUrl = document.getElementById('coordinator-url').value.trim();
+            if (!coordinatorUrl) {
+                alert('Please enter a coordinator URL');
+                return;
+            }
+            localStorage.setItem('coordinator-url', coordinatorUrl);
+            refreshDashboard();
+        }
+
+        function updateRefreshInterval() {
+            refreshInterval = parseInt(document.getElementById('refresh-interval').value);
+            localStorage.setItem('refresh-interval', refreshInterval);
+
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+
+            if (refreshInterval > 0) {
+                refreshTimer = setInterval(refreshDashboard, refreshInterval);
+            }
+        }
+
+        async function refreshDashboard() {
+            try {
+                // Fetch network stats
+                const statsResponse = await fetch(`${coordinatorUrl}/stats`);
+                if (!statsResponse.ok) throw new Error('Failed to fetch stats');
+                const stats = await statsResponse.json();
+
+                // Update metrics
+                document.getElementById('active-nodes').textContent = stats.active_nodes || 0;
+                document.getElementById('total-jobs').textContent = (stats.total_jobs_completed || 0).toLocaleString();
+
+                const successRate = stats.success_rate ? (stats.success_rate * 100).toFixed(1) : '0.0';
+                document.getElementById('success-rate').textContent = `${successRate}%`;
+
+                // Update health progress bar
+                const healthPercent = Math.min(100, (stats.active_nodes || 0) * 2);
+                document.getElementById('health-progress').style.width = `${healthPercent}%`;
+
+                // Update network status indicator
+                const statusIndicator = document.getElementById('network-status');
+                if (stats.active_nodes >= 5) {
+                    statusIndicator.className = 'status-indicator healthy';
+                } else if (stats.active_nodes >= 1) {
+                    statusIndicator.className = 'status-indicator degraded';
+                } else {
+                    statusIndicator.className = 'status-indicator offline';
+                }
+
+                // Fetch nodes
+                const nodesResponse = await fetch(`${coordinatorUrl}/nodes/discover?limit=100`);
+                if (!nodesResponse.ok) throw new Error('Failed to fetch nodes');
+                const nodes = await nodesResponse.json();
+
+                // Update node list
+                const nodeList = document.getElementById('node-list');
+                if (nodes && nodes.length > 0) {
+                    nodeList.innerHTML = nodes.map(node => `
+                        <div class="node-item">
+                            <div class="node-header">
+                                <div class="node-id">${node.node_id.substring(0, 8)}...</div>
+                                <div style="color: ${node.current_load < 0.5 ? '#4ade80' : node.current_load < 0.8 ? '#fbbf24' : '#ef4444'}">
+                                    ${(node.current_load * 100).toFixed(0)}% Load
+                                </div>
+                            </div>
+                            <div class="node-models">📦 ${node.models.join(', ')}</div>
+                            <div class="node-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">Address</span>
+                                    <span class="stat-value">${node.address}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Uptime</span>
+                                    <span class="stat-value">${node.uptime_score.toFixed(1)}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Success Rate</span>
+                                    <span class="stat-value">${(node.success_rate * 100).toFixed(1)}%</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    nodeList.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">No active nodes found</p>';
+                }
+
+                // Try to fetch federation stats
+                try {
+                    const fedResponse = await fetch(`${coordinatorUrl}/federation/peers`);
+                    if (fedResponse.ok) {
+                        const fedData = await fedResponse.json();
+
+                        if (fedData.peers && fedData.peers.length > 0) {
+                            document.getElementById('federation-card').style.display = 'block';
+                            document.getElementById('peer-count').textContent = fedData.stats?.healthy_peers || 0;
+
+                            const peerList = document.getElementById('peer-list');
+                            peerList.innerHTML = fedData.peers.map(peer => `
+                                <div class="peer-item">
+                                    <div class="peer-url">${peer.url}</div>
+                                    <div class="peer-stats">
+                                        <div class="stat-item">
+                                            <span class="stat-label">Status</span>
+                                            <span class="stat-value" style="color: ${peer.status === 'healthy' ? '#4ade80' : '#fbbf24'}">${peer.status}</span>
+                                        </div>
+                                        <div class="stat-item">
+                                            <span class="stat-label">Last Sync</span>
+                                            <span class="stat-value">${peer.last_sync ? new Date(peer.last_sync).toLocaleTimeString() : 'Never'}</span>
+                                        </div>
+                                        <div class="stat-item">
+                                            <span class="stat-label">Total Syncs</span>
+                                            <span class="stat-value">${peer.total_syncs}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('');
+                        } else {
+                            document.getElementById('peer-count').textContent = '0';
+                        }
+                    }
+                } catch (e) {
+                    // Federation not enabled or endpoint not available
+                    document.getElementById('peer-count').textContent = 'N/A';
+                }
+
+                document.getElementById('last-update').textContent = `Last updated: ${new Date().toLocaleString()}`;
+
+            } catch (error) {
+                console.error('Dashboard refresh error:', error);
+                document.getElementById('network-status').className = 'status-indicator offline';
+
+                // Show error in node list
+                const nodeList = document.getElementById('node-list');
+                nodeList.innerHTML = `
+                    <div class="error-message">
+                        Failed to connect to coordinator: ${error.message}<br>
+                        Please check the coordinator URL and try again.
+                    </div>
+                `;
+            }
+        }
+
+        function clearCache() {
+            localStorage.clear();
+            location.reload();
+        }
+
+        function exportStats() {
+            fetch(`${coordinatorUrl}/stats`)
+                .then(res => res.json())
+                .then(stats => {
+                    const data = JSON.stringify(stats, null, 2);
+                    const blob = new Blob([data], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `ambient-stats-${Date.now()}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                })
+                .catch(error => alert('Failed to export stats: ' + error.message));
+        }
+    </script>
+</body>
+</html>
