@@ -43,6 +43,8 @@ class CoordinatorConfig:
         self.peer_coordinators = self._parse_peer_coordinators()
         self.federation_enabled = os.getenv("FEDERATION_ENABLED", "false").lower() == "true"
         self.federation_sync_interval = int(os.getenv("FEDERATION_SYNC_INTERVAL", "300"))  # seconds
+        self.coordinator_secret = os.getenv("COORDINATOR_SECRET", "")  # For signing node announcements
+        self.federation_trust_mode = os.getenv("FEDERATION_TRUST_MODE", "permissive")  # permissive or strict
 
         # Security
         self.jwt_secret_key = os.getenv("JWT_SECRET_KEY", "")

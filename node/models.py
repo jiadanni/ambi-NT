@@ -5,10 +5,23 @@ These Pydantic models define the request/response schemas
 for the node's HTTP endpoints.
 """
 
-from typing import Optional
+from typing import Optional, List, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 import base64
+
+
+class Message(BaseModel):
+    """A single message in a conversation."""
+
+    role: Literal["user", "assistant", "system"] = Field(
+        ...,
+        description="Message role: user, assistant, or system"
+    )
+    content: str = Field(
+        ...,
+        description="Message content"
+    )
 
 
 class SubmitJobRequest(BaseModel):
@@ -16,17 +29,36 @@ class SubmitJobRequest(BaseModel):
 
     encrypted_prompt: str = Field(
         ...,
-        description="Base64-encoded encrypted prompt",
+        description="Base64-encoded encrypted prompt or conversation context",
         max_length=100000
     )
     client_pubkey: str = Field(
         ...,
         description="Base64-encoded client public key"
     )
+    conversation_mode: bool = Field(
+        default=False,
+        description="Whether this request includes conversation context"
+    )
+    max_context_tokens: Optional[int] = Field(
+        None,
+        description="Maximum tokens to use for context (for truncation)",
+        ge=0,
+        le=32000
+    )
     model: Optional[str] = Field(
         None,
         description="Optional model override",
         max_length=50
+    )
+    proof_of_work_nonce: Optional[str] = Field(
+        None,
+        description="Proof-of-work nonce (if required)",
+        max_length=64
+    )
+    timestamp: Optional[int] = Field(
+        None,
+        description="Request timestamp (for replay attack prevention)"
     )
 
     @validator('encrypted_prompt')
@@ -59,6 +91,14 @@ class SubmitJobResponse(BaseModel):
     estimated_wait_seconds: int = Field(
         ...,
         description="Estimated time until completion"
+    )
+    requires_proof_of_work: bool = Field(
+        default=False,
+        description="Whether proof-of-work is required for this request"
+    )
+    pow_challenge: Optional[str] = Field(
+        None,
+        description="Proof-of-work challenge (if required)"
     )
 
 

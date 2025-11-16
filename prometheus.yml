@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'ambient_node'
+    static_configs:
+      - targets: ['node:8000']
+    metrics_path: /prometheus
+
+  # Uncomment to add coordinator metrics later
+  # - job_name: 'ambient_coordinator'
+  #   static_configs:
+  #     - targets: ['coordinator:5000']
+  #   metrics_path: /prometheus

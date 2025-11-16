@@ -119,6 +119,32 @@ services:
     networks:
       - ambient_network
 
+  # Prometheus for metrics scraping (local observability)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ambient-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+    networks:
+      - ambient_network
+    depends_on:
+      - node
+
+  # Grafana for dashboards (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ambient-grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - ambient_network
+    depends_on:
+      - prometheus
+
 volumes:
   ollama_data:
     driver: local

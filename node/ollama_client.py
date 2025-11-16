@@ -14,7 +14,8 @@ Privacy Note:
 
 import subprocess
 import signal
-from typing import Optional
+import json
+from typing import Optional, List, Dict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,76 @@ class OllamaClient:
             return result.returncode == 0
         except:
             return False
+
+    def generate_chat(
+        self,
+        messages: List[Dict[str, str]],
+        timeout: int = 120
+    ) -> Optional[str]:
+        """
+        Generate a response from Ollama using chat/conversation format.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+                     Format: [{"role": "user", "content": "..."}]
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            The generated response, or None if timeout/error occurs
+
+        SECURITY NOTE: Messages contain plaintext user data.
+        Never log these values. They should only exist in memory during execution.
+        """
+        try:
+            # Convert messages to JSON for stdin
+            # Ollama accepts conversation history in this format
+            messages_json = json.dumps(messages)
+
+            # Create a prompt that simulates conversation by concatenating messages
+            # For Ollama CLI, we need to format this as a single prompt
+            # Format: role: content\n\nrole: content\n\n...
+            formatted_prompt = self._format_messages_as_prompt(messages)
+
+            # Use the standard generate method with formatted prompt
+            return self.generate(formatted_prompt, timeout=timeout)
+
+        except Exception as e:
+            logger.error(f"Unexpected error in Ollama chat generation: {str(e)}")
+            return None
+
+    def _format_messages_as_prompt(self, messages: List[Dict[str, str]]) -> str:
+        """
+        Format conversation messages as a single prompt for Ollama CLI.
+
+        Since Ollama CLI doesn't natively support the chat format in the same way
+        as the API, we format the conversation history as a coherent prompt.
+
+        Args:
+            messages: List of message dicts
+
+        Returns:
+            Formatted prompt string
+        """
+        prompt_parts = []
+
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+
+            if role == "system":
+                prompt_parts.append(f"System: {content}")
+            elif role == "user":
+                prompt_parts.append(f"User: {content}")
+            elif role == "assistant":
+                prompt_parts.append(f"Assistant: {content}")
+
+        # Join with double newlines for clarity
+        # Add a final "Assistant:" to prompt the model to respond
+        prompt = "\n\n".join(prompt_parts)
+        if messages[-1]["role"] == "user":
+            prompt += "\n\nAssistant:"
+
+        return prompt
 
     def pull_model(self, model: str = None) -> bool:
         """

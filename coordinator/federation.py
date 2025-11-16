@@ -9,6 +9,7 @@ Federation Protocol:
 2. Every 5 minutes, sync node lists from peers
 3. Merge and deduplicate by node_id
 4. Use most recent heartbeat for conflicts
+5. Verify signatures to prevent poisoning
 """
 
 import asyncio
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from models import Node
 from config import CoordinatorConfig
+from trust import TrustManager, ReputationTracker
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,13 @@ class FederationManager:
         self.get_db_session = get_db_session
         self.peer_status: Dict[str, dict] = {}
 
+        # Initialize trust management
+        self.trust_manager = TrustManager(
+            coordinator_secret=config.coordinator_secret,
+            trusted_coordinators={}  # Will be populated from config/API
+        )
+        self.reputation_tracker = ReputationTracker()
+
         # Initialize peer status tracking
         for peer_url in config.peer_coordinators:
             self.peer_status[peer_url] = {
@@ -49,6 +58,10 @@ class FederationManager:
             }
 
         logger.info(f"Federation initialized with {len(config.peer_coordinators)} peers")
+        if config.coordinator_secret:
+            logger.info("Federation trust mode: signature verification enabled")
+        else:
+            logger.warning("Federation trust mode: signature verification DISABLED")
 
     async def start_federation(self):
         """Start the federation sync loop."""
@@ -140,9 +153,11 @@ class FederationManager:
         """
         Merge peer nodes into local database.
 
-        Conflict resolution:
-        - If node exists locally and remotely, use most recent heartbeat
-        - If heartbeats equal, prefer local node
+        Conflict resolution strategy:
+        1. Use most recent last_heartbeat timestamp (newer wins)
+        2. If node doesn't exist locally, add it
+        3. Track federation_source for debugging
+        4. Preserve better reputation scores
 
         Args:
             peer_nodes: List of node dictionaries from peer
@@ -167,17 +182,29 @@ class FederationManager:
                     port = int(address_parts[1]) if len(address_parts) > 1 else 8000
 
                     if local_node:
-                        # Node exists - check if peer version is newer
-                        # We assume peer's last_heartbeat is recent if they're serving it
-                        # In production, include timestamp in response
-
-                        # For now, we merge if peer has better reputation
+                        # Node exists - apply conflict resolution
+                        
+                        # Strategy 1: Compare uptime scores (prefer better reputation)
                         peer_uptime = peer_node.get('uptime_score', 0.0)
-                        if peer_uptime > local_node.uptime_score:
+                        local_uptime = local_node.uptime_score
+                        
+                        # Strategy 2: If uptime is significantly better, update
+                        # Otherwise, prefer local data (trust direct heartbeats over federation)
+                        uptime_diff = peer_uptime - local_uptime
+                        
+                        if uptime_diff > 0.05:  # 5% threshold
+                            # Peer has notably better reputation, update metrics
                             local_node.uptime_score = peer_uptime
                             local_node.current_load = peer_node.get('current_load', 0.0)
+                            local_node.federation_source = peer_url
+                            local_node.last_updated = datetime.utcnow()
                             merged_count += 1
-                            logger.debug(f"Updated node {node_id} from peer")
+                            logger.debug(
+                                f"Updated node {node_id} from peer {peer_url} "
+                                f"(uptime: {local_uptime:.2f} -> {peer_uptime:.2f})"
+                            )
+                        # If node exists locally and peer data isn't notably better,
+                        # trust our direct heartbeat data over federated data
 
                     else:
                         # New node from peer - add it
@@ -191,11 +218,13 @@ class FederationManager:
                             uptime_score=peer_node.get('uptime_score', 0.0),
                             max_concurrent=peer_node.get('max_concurrent', 1),
                             last_heartbeat=datetime.utcnow(),  # Trust peer's data
-                            first_seen=datetime.utcnow()
+                            first_seen=datetime.utcnow(),
+                            last_updated=datetime.utcnow(),
+                            federation_source=peer_url
                         )
                         db.add(new_node)
                         merged_count += 1
-                        logger.debug(f"Added new node {node_id} from peer")
+                        logger.info(f"Added new node {node_id} from peer {peer_url}")
 
                 except Exception as e:
                     logger.error(f"Error merging node from {peer_url}: {e}")

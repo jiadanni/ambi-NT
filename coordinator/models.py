@@ -46,6 +46,10 @@ class Node(Base):
     # Timing
     last_heartbeat = Column(DateTime, default=datetime.utcnow, nullable=False)
     first_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Federation tracking
+    federation_source = Column(String(200))  # URL of coordinator that reported this node
 
     # Metadata
     version = Column(String(20))  # Node software version

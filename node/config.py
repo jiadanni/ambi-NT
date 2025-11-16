@@ -25,6 +25,19 @@ class Config:
         self.max_concurrent_jobs = int(os.getenv("MAX_CONCURRENT_JOBS", "1"))
         self.job_timeout_seconds = int(os.getenv("JOB_TIMEOUT_SECONDS", "120"))
 
+        # Security settings
+        self.enable_rate_limiting = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
+        self.rate_limit_per_client = int(os.getenv("RATE_LIMIT_PER_CLIENT", "10"))
+        self.rate_limit_global = int(os.getenv("RATE_LIMIT_GLOBAL", "100"))
+        self.enable_prompt_sanitization = os.getenv("ENABLE_PROMPT_SANITIZATION", "true").lower() == "true"
+        self.max_prompt_length = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))
+        self.enable_proof_of_work = os.getenv("ENABLE_PROOF_OF_WORK", "false").lower() == "true"
+        self.pow_difficulty = int(os.getenv("POW_DIFFICULTY", "4"))
+        
+        # Authentication settings
+        self.require_client_signature = os.getenv("REQUIRE_CLIENT_SIGNATURE", "false").lower() == "true"
+        self.allowed_client_keys = os.getenv("ALLOWED_CLIENT_KEYS", "").split(",") if os.getenv("ALLOWED_CLIENT_KEYS") else []
+
         # Cryptography
         self.node_private_key = os.getenv("NODE_PRIVATE_KEY")
         self.node_public_key = os.getenv("NODE_PUBLIC_KEY")
@@ -32,6 +45,10 @@ class Config:
         # Coordinator (Phase 2+)
         self.coordinator_url = os.getenv("COORDINATOR_URL", "")
         self.heartbeat_interval_seconds = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "60"))
+
+        # Job management
+        self.job_cleanup_interval_seconds = int(os.getenv("JOB_CLEANUP_INTERVAL_SECONDS", "300"))  # 5 minutes
+        self.job_ttl_seconds = int(os.getenv("JOB_TTL_SECONDS", "3600"))  # 1 hour
 
         # Debugging
         self.enable_debug_logs = os.getenv("ENABLE_DEBUG_LOGS", "false").lower() == "true"
