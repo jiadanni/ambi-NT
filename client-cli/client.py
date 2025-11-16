@@ -18,7 +18,7 @@ import argparse
 import requests
 from typing import Optional
 
-from crypto import ClientCrypto
+from client_cli.crypto import ClientCrypto
 
 
 class AmbientClient:

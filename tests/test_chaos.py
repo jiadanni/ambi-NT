@@ -356,7 +356,7 @@ async def test_concurrent_requests_with_chaos():
 async def test_job_cleanup_under_stress():
     """Test job cleanup works correctly under chaos conditions."""
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'node')))
-    from models import Job
+    from node.models import Job
     from datetime import datetime, timedelta
     
     chaos = ChaosSimulator()

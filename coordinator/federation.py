@@ -19,9 +19,9 @@ from typing import List, Dict, Optional
 import aiohttp
 from sqlalchemy.orm import Session
 
-from models import Node
-from config import CoordinatorConfig
-from trust import TrustManager, ReputationTracker
+from coordinator.models import Node
+from coordinator.config import CoordinatorConfig
+from coordinator.trust import TrustManager, ReputationTracker
 
 logger = logging.getLogger(__name__)
 

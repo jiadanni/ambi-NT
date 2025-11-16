@@ -21,7 +21,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 import getpass
 
-from crypto import ClientCrypto
+from client_cli.crypto import ClientCrypto
 
 
 class ConversationStorage:

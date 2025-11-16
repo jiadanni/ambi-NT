@@ -8,7 +8,7 @@ while preserving important context.
 import json
 import logging
 from typing import List, Tuple, Optional
-from models import Message
+from node.models import Message
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'node'))
 
 from context_manager import ContextManager
-from models import Message
+from node.models import Message
 
 
 class TestContextManager:

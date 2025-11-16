@@ -13,7 +13,7 @@ from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
 import logging
 
-from models import Base
+from coordinator.models import Base
 
 logger = logging.getLogger(__name__)
 

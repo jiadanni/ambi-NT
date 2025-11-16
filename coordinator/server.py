@@ -27,10 +27,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel, Field
 
-from config import CoordinatorConfig
-from database import Database, get_db
-from models import Node, Blocklist, AbuseReport, PriorityTokenLedger, CoordinatorStats
-from federation import FederationManager
+from coordinator.config import CoordinatorConfig
+from coordinator.database import Database, get_db
+from coordinator.models import Node, Blocklist, AbuseReport, PriorityTokenLedger, CoordinatorStats
+from coordinator.federation import FederationManager
 
 # Configure logging
 config = CoordinatorConfig()

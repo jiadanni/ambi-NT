@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'client-cli'))
 import nacl.public
 import nacl.encoding
 from node.crypto import NodeCrypto, generate_keypair
-from crypto import ClientCrypto
+from client_cli.crypto import ClientCrypto
 
 
 class TestKeypairGeneration:
