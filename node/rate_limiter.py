@@ -7,13 +7,28 @@ from collections import defaultdict
 from typing import Dict, Tuple, Optional
 import hashlib
 import logging
+import uuid
+import redis
 
 logger = logging.getLogger(__name__)
 
 class RateLimiter:
-    def __init__(self, max_requests_per_minute: int = 10, max_global_per_minute: int = 100):
+    def __init__(self, max_requests_per_minute: int = 10, max_global_per_minute: int = 100, redis_url: Optional[str] = None):
         self.max_requests = max_requests_per_minute
         self.max_global = max_global_per_minute
+        self.redis_url = redis_url
+        self.redis_client = None
+        if redis_url:
+            try:
+                self.redis_client = redis.from_url(redis_url, decode_responses=True)
+                # Test connection
+                self.redis_client.ping()
+                logger.info(f"Connected to Redis at {redis_url}")
+            except Exception as e:
+                logger.error(f"Failed to connect to Redis: {e}")
+                self.redis_client = None
+
+        # In-memory fallbacks
         # Track requests by client pubkey hash
         self.requests: Dict[str, list] = defaultdict(list)
         # Track global requests across all clients
@@ -34,6 +49,50 @@ class RateLimiter:
         # Hash the pubkey for privacy
         key_hash = hashlib.sha256(client_pubkey.encode()).hexdigest()[:16]
         
+        if self.redis_client:
+            try:
+                # Redis pipelining for atomic operations
+                pipe = self.redis_client.pipeline()
+                now = time.time()
+                minute_ago = now - 60
+
+                # Global
+                global_key = "ratelimit:global"
+                pipe.zremrangebyscore(global_key, 0, minute_ago)
+                pipe.zcard(global_key)
+
+                # Client
+                client_key = f"ratelimit:client:{key_hash}"
+                pipe.zremrangebyscore(client_key, 0, minute_ago)
+                pipe.zcard(client_key)
+
+                results = pipe.execute()
+                # results: [removed_global, global_count, removed_client, client_count]
+
+                global_count = results[1]
+                client_count = results[3]
+
+                if global_count >= self.max_global:
+                    return False, 60, "Global rate limit exceeded"
+
+                if client_count >= self.max_requests:
+                    return False, 60, "Client rate limit exceeded"
+
+                # Add current request
+                pipe = self.redis_client.pipeline()
+                # Use timestamp as score and member to ensure uniqueness
+                pipe.zadd(global_key, {str(now): now})
+                pipe.expire(global_key, 60)
+                pipe.zadd(client_key, {str(now): now})
+                pipe.expire(client_key, 60)
+                pipe.execute()
+
+                return True, 0, None
+
+            except redis.RedisError as e:
+                logger.error(f"Redis rate limit error, falling back to in-memory: {e}")
+                # Fallback to in-memory logic
+
         current_time = time.time()
         minute_ago = current_time - 60
         
@@ -73,6 +132,26 @@ class RateLimiter:
         """
         key_hash = hashlib.sha256(client_pubkey.encode()).hexdigest()[:16]
         current_time = time.time()
+
+        if self.redis_client:
+            try:
+                key = f"auth_fail:{key_hash}"
+                pipe = self.redis_client.pipeline()
+                hour_ago = current_time - 3600
+                pipe.zremrangebyscore(key, 0, hour_ago)
+                pipe.zadd(key, {str(current_time): current_time})
+                pipe.expire(key, 3600)
+                # Check count for logging
+                pipe.zcard(key)
+                results = pipe.execute()
+                count = results[3]
+                if count > 10:
+                    logger.warning(f"Client {key_hash} has {count} failed auth attempts")
+                return
+            except redis.RedisError as e:
+                logger.error(f"Redis error in record_auth_failure: {e}")
+                # Fallback
+
         hour_ago = current_time - 3600
         
         # Clean old failures
@@ -90,6 +169,21 @@ class RateLimiter:
         """Check if client is temporarily blocked due to auth failures."""
         key_hash = hashlib.sha256(client_pubkey.encode()).hexdigest()[:16]
         current_time = time.time()
+
+        if self.redis_client:
+            try:
+                key = f"auth_fail:{key_hash}"
+                hour_ago = current_time - 3600
+                pipe = self.redis_client.pipeline()
+                pipe.zremrangebyscore(key, 0, hour_ago)
+                pipe.zcard(key)
+                results = pipe.execute()
+                count = results[1]
+                return count > 20
+            except redis.RedisError as e:
+                logger.error(f"Redis error in is_blocked_by_auth_failures: {e}")
+                # Fallback
+
         hour_ago = current_time - 3600
         
         # Clean old failures
@@ -111,8 +205,18 @@ class RateLimiter:
         """
         # Generate unique challenge
         challenge_hash = hashlib.sha256(
-            f"{time.time()}{len(self.pow_challenges)}".encode()
+            f"{time.time()}{uuid.uuid4()}".encode()
         ).hexdigest()
+
+        if self.redis_client:
+            try:
+                key = f"pow:{challenge_hash}"
+                # Store difficulty
+                self.redis_client.setex(key, 300, difficulty)
+                return f"{difficulty}:{challenge_hash}"
+            except redis.RedisError as e:
+                logger.error(f"Redis error in generate_pow_challenge: {e}")
+                # Fallback
 
         # Store challenge with timestamp and difficulty
         self.pow_challenges[challenge_hash] = (time.time(), difficulty)
@@ -146,6 +250,36 @@ class RateLimiter:
 
             difficulty = int(parts[0])
             challenge_hash = parts[1]
+
+            if self.redis_client:
+                try:
+                    key = f"pow:{challenge_hash}"
+                    stored_difficulty = self.redis_client.get(key)
+
+                    if not stored_difficulty:
+                        logger.warning(f"PoW challenge not found or expired: {challenge_hash[:16]}...")
+                        return False
+
+                    stored_difficulty = int(stored_difficulty)
+
+                    if difficulty != stored_difficulty:
+                        logger.warning(f"PoW difficulty mismatch: {difficulty} != {stored_difficulty}")
+                        return False
+
+                    # Compute hash of challenge + nonce
+                    solution = hashlib.sha256(f"{challenge_hash}{nonce}".encode()).hexdigest()
+
+                    # Check if it has the required leading zeros
+                    required = '0' * difficulty
+                    is_valid = solution.startswith(required)
+
+                    if is_valid:
+                        self.redis_client.delete(key)
+
+                    return is_valid
+                except redis.RedisError as e:
+                    logger.error(f"Redis error in verify_pow: {e}")
+                    # Fallback
 
             # Verify challenge was actually issued and not expired
             if challenge_hash not in self.pow_challenges:
