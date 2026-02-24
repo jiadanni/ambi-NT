@@ -56,6 +56,11 @@ class SubmitJobRequest(BaseModel):
         description="Proof-of-work nonce (if required)",
         max_length=64
     )
+    pow_challenge: Optional[str] = Field(
+        None,
+        description="Proof-of-work challenge from server (client must include when submitting nonce)",
+        max_length=128
+    )
     timestamp: Optional[int] = Field(
         None,
         description="Request timestamp (for replay attack prevention)"
@@ -154,6 +159,9 @@ class NodeHeartbeat(BaseModel):
     models: list[str]
     max_concurrent: int = 1
     current_load: float = 0.0
+    timestamp: Optional[int] = None
+    signature: Optional[str] = None
+    signature_pubkey: Optional[str] = None
 
 
 class Job:
@@ -165,7 +173,8 @@ class Job:
         self.status = "pending"
         self.encrypted_response: Optional[str] = None
         self.error_message: Optional[str] = None
-        self.created_at = datetime.utcnow()
+        self.submitted_at = datetime.utcnow()
+        self.created_at = self.submitted_at
         self.completed_at: Optional[datetime] = None
 
     def to_dict(self) -> dict:
@@ -176,6 +185,7 @@ class Job:
             "status": self.status,
             "encrypted_response": self.encrypted_response,
             "error_message": self.error_message,
+            "submitted_at": self.submitted_at.isoformat(),
             "created_at": self.created_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None
         }

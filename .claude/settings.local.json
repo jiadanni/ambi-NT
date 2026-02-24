@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(wc:*)",
+      "Bash(alembic init:*)",
+      "Bash(python -m py_compile node/*.py coordinator/*.py client-cli/*.py 2>&1 | head -50)",
+      "Bash(grep -r \"CORS\\\\|cors\\\\|origins\" /Users/daniel.jatto/Source/mine/ambi-NT-Phase3/node /Users/daniel.jatto/Source/mine/ambi-NT-Phase3/coordinator --include=\"*.py\" 2>/dev/null | head -20)",
+      "Bash(python -m py_compile node/server.py 2>&1 | head -30)"
     ],
     "deny": [],
     "ask": []

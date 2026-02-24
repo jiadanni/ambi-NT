@@ -15,14 +15,16 @@ import os
 import base64
 from typing import Tuple
 import nacl.public
+import nacl.signing
 import nacl.encoding
 import nacl.utils
+import json
 
 
 class NodeCrypto:
     """Handles encryption operations for the node."""
 
-    def __init__(self, private_key_b64: str = None):
+    def __init__(self, private_key_b64: str = None, signing_private_key_b64: str = None):
         """
         Initialize with a private key, or generate a new one.
 
@@ -31,6 +33,7 @@ class NodeCrypto:
 
         Args:
             private_key_b64: Base64-encoded private key. If None, generates new keypair.
+            signing_private_key_b64: Base64-encoded signing key. If None, generates new keypair.
         """
         if private_key_b64:
             self.private_key = nacl.public.PrivateKey(
@@ -42,6 +45,18 @@ class NodeCrypto:
             self.private_key = nacl.public.PrivateKey.generate()
 
         self.public_key = self.private_key.public_key
+        
+        # Signing support (Ed25519)
+        # Use separate keys for signing as per best practices
+        if signing_private_key_b64:
+            self.signing_key = nacl.signing.SigningKey(
+                signing_private_key_b64,
+                encoder=nacl.encoding.Base64Encoder
+            )
+        else:
+            self.signing_key = nacl.signing.SigningKey.generate()
+            
+        self.verify_key = self.signing_key.verify_key
 
     def get_public_key(self) -> str:
         """Return the node's public key as base64 string."""
@@ -50,6 +65,29 @@ class NodeCrypto:
     def get_private_key(self) -> str:
         """Return the node's private key as base64 string (for storage in .env)."""
         return base64.b64encode(bytes(self.private_key)).decode()
+
+    def get_signing_public_key(self) -> str:
+        """Return the node's signing public key as base64 string."""
+        return self.verify_key.encode(encoder=nacl.encoding.Base64Encoder).decode()
+
+    def get_signing_private_key(self) -> str:
+        """Return the node's signing private key as base64 string."""
+        return self.signing_key.encode(encoder=nacl.encoding.Base64Encoder).decode()
+
+    def sign_heartbeat(self, payload: dict) -> str:
+        """
+        Sign a heartbeat payload.
+        
+        Args:
+            payload: Dictionary to sign
+            
+        Returns:
+            Base64-encoded signature
+        """
+        # Canonicalize payload for consistent signing
+        message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        signature = self.signing_key.sign(message).signature
+        return base64.b64encode(signature).decode()
 
     def decrypt_prompt(self, encrypted_b64: str, client_pubkey_b64: str) -> str:
         """

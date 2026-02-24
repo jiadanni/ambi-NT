@@ -37,7 +37,7 @@ class OllamaClient:
 
     def generate(self, prompt: str, timeout: int = 120) -> Optional[str]:
         """
-        Generate a response from Ollama.
+        Generate a response from Ollama with strict timeout enforcement.
 
         Args:
             prompt: The plaintext prompt to process
@@ -49,6 +49,7 @@ class OllamaClient:
         SECURITY NOTE: The prompt parameter contains plaintext user data.
         Never log this value. It should only exist in memory during execution.
         """
+        process = None
         try:
             # We use subprocess to call ollama CLI
             # The prompt is passed via stdin to avoid shell history
@@ -57,17 +58,21 @@ class OllamaClient:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                # Set process group for proper cleanup
+                preexec_fn=None if subprocess.os.name == 'nt' else lambda: subprocess.os.setpgrp()
             )
 
             # Write prompt to stdin and close it
             # This is safer than passing as command line argument
+            # Timeout is enforced at the communicate level
             stdout, stderr = process.communicate(input=prompt, timeout=timeout)
 
             if process.returncode != 0:
                 # Log the error but NOT the prompt
                 logger.error(f"Ollama process failed with code {process.returncode}")
-                logger.error(f"Stderr: {stderr}")
+                if stderr:
+                    logger.error(f"Stderr: {stderr[:200]}")  # Limit stderr output
                 return None
 
             # Return the generated response
@@ -76,12 +81,31 @@ class OllamaClient:
 
         except subprocess.TimeoutExpired:
             # Kill the process if it exceeds timeout
-            process.kill()
-            logger.warning(f"Ollama generation exceeded timeout of {timeout}s")
+            logger.warning(f"Ollama generation exceeded timeout of {timeout}s - terminating process")
+            if process:
+                try:
+                    # Try graceful termination first
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        # Force kill if still running
+                        process.kill()
+                        process.wait()
+                    logger.info("Ollama process terminated successfully")
+                except Exception as kill_error:
+                    logger.error(f"Error terminating Ollama process: {kill_error}")
             return None
 
         except Exception as e:
             logger.error(f"Unexpected error in Ollama generation: {str(e)}")
+            # Ensure process cleanup on unexpected errors
+            if process and process.poll() is None:
+                try:
+                    process.kill()
+                    process.wait()
+                except:
+                    pass
             return None
 
     def is_available(self) -> bool:

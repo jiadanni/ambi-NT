@@ -1,0 +1,90 @@
+# Ambient Intelligence CLI Configuration
+# Copy this to ~/.config/ambient/config.toml and customize
+
+[coordinator]
+# Primary coordinator for node discovery
+primary = "https://bootstrap.ambient.network"
+
+# Fallback coordinators (tried if primary fails)
+fallbacks = [
+    "https://alt1.ambient.network",
+    "https://alt2.ambient.network"
+]
+
+# Coordinator timeout in seconds
+timeout = 10
+
+[preferences]
+# Default model to use (can be overridden per-request)
+model = "llama3:8b"
+
+# Alternative models to try if preferred isn't available
+fallback_models = ["mistral:7b", "llama2:7b"]
+
+# Request timeout in seconds
+timeout = 300
+
+# Enable conversation mode by default
+conversation_mode = true
+
+# Maximum context window for conversations (tokens)
+max_context_tokens = 4096
+
+[security]
+# Path to your private key (automatically generated on first run if missing)
+private_key_path = "~/.config/ambient/keys/private.pem"
+
+# Path to your public key
+public_key_path = "~/.config/ambient/keys/public.pem"
+
+# Verify node signatures (recommended for production)
+verify_node_signatures = true
+
+# Trust only specific coordinators (leave empty to trust any)
+trusted_coordinators = []
+
+[audio]
+# Audio input device (leave empty for default)
+input_device = ""
+
+# Sample rate for recording (Hz)
+sample_rate = 16000
+
+# Audio format
+format = "wav"
+
+# Maximum recording length (seconds)
+max_length = 60
+
+[output]
+# Output format: "text", "json", "markdown"
+format = "text"
+
+# Enable colored output
+colors = true
+
+# Enable verbose logging
+verbose = false
+
+# Log file path (leave empty to disable file logging)
+log_file = ""
+
+[cache]
+# Cache directory for session data
+directory = "~/.cache/ambient"
+
+# Cache session data for faster multi-turn conversations
+enable_session_cache = true
+
+# Session cache TTL (seconds)
+session_ttl = 3600
+
+[experimental]
+# Enable experimental features (may be unstable)
+enable_experimental = false
+
+# Use voice-only mode
+voice_only = false
+
+# Enable local transcription (requires whisper)
+local_transcription = false

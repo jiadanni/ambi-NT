@@ -38,6 +38,8 @@ class CoordinatorConfig:
         self.abuse_report_threshold = int(os.getenv("ABUSE_REPORT_THRESHOLD", "3"))
         self.abuse_block_duration_hours = int(os.getenv("ABUSE_BLOCK_DURATION_HOURS", "24"))
         self.max_requests_per_minute = int(os.getenv("MAX_REQUESTS_PER_MINUTE", "60"))
+        self.require_node_signature = os.getenv("REQUIRE_NODE_SIGNATURE", "true").lower() == "true"
+        self.node_signature_max_age_seconds = int(os.getenv("NODE_SIGNATURE_MAX_AGE_SECONDS", "300"))
 
         # Federation (Phase 3)
         self.peer_coordinators = self._parse_peer_coordinators()
@@ -45,6 +47,8 @@ class CoordinatorConfig:
         self.federation_sync_interval = int(os.getenv("FEDERATION_SYNC_INTERVAL", "300"))  # seconds
         self.coordinator_secret = os.getenv("COORDINATOR_SECRET", "")  # For signing node announcements
         self.federation_trust_mode = os.getenv("FEDERATION_TRUST_MODE", "permissive")  # permissive or strict
+        self.trusted_coordinators = self._parse_trusted_coordinators()
+        self.coordinator_public_url = os.getenv("COORDINATOR_PUBLIC_URL", "")
 
         # Security
         self.jwt_secret_key = os.getenv("JWT_SECRET_KEY", "")
@@ -66,6 +70,25 @@ class CoordinatorConfig:
         if not peers:
             return []
         return [url.strip() for url in peers.split(",") if url.strip()]
+
+    def _parse_trusted_coordinators(self) -> dict:
+        """Parse trusted coordinators in url=secret format."""
+        raw = os.getenv("TRUSTED_COORDINATORS", "")
+        if not raw:
+            return {}
+        trusted = {}
+        for pair in raw.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if "=" not in pair:
+                continue
+            url, secret = pair.split("=", 1)
+            url = url.strip()
+            secret = secret.strip()
+            if url and secret:
+                trusted[url] = secret
+        return trusted
 
     def _parse_cors_origins(self) -> List[str]:
         """Parse comma-separated list of allowed CORS origins."""

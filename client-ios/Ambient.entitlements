@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Disable all unnecessary entitlements for privacy -->
+    
+    <!-- No iCloud -->
+    <key>com.apple.developer.icloud-container-identifiers</key>
+    <array/>
+    
+    <!-- No Keychain sharing -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.ambient.client</string>
+    </array>
+    
+    <!-- No app groups -->
+    <key>com.apple.security.application-groups</key>
+    <array/>
+    
+    <!-- Network client only -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

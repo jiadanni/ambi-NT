@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext only for local testing (localhost, private IPs) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain> <!-- Android emulator host -->
+        <domain includeSubdomains="true">10.0.0.0</domain> <!-- Private network -->
+        <domain includeSubdomains="true">192.168.0.0</domain> <!-- Private network -->
+    </domain-config>
+    
+    <!-- Production nodes should use HTTPS -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

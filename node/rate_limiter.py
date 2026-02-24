@@ -22,6 +22,9 @@ class RateLimiter:
         self.authenticated_clients: Dict[str, float] = {}
         # Track failed auth attempts
         self.failed_auths: Dict[str, list] = defaultdict(list)
+        # Track PoW challenges (challenge_hash -> (timestamp, difficulty))
+        # Challenges expire after 5 minutes
+        self.pow_challenges: Dict[str, Tuple[float, int]] = {}
         
     def is_allowed(self, client_pubkey: str) -> Tuple[bool, int, Optional[str]]:
         """Check if client is within rate limits.
@@ -98,41 +101,83 @@ class RateLimiter:
         return len(self.failed_auths[key_hash]) > 20  # Block after 20 failures in an hour
     
     def generate_pow_challenge(self, difficulty: int = 4) -> str:
-        """Generate a proof-of-work challenge.
-        
+        """Generate a proof-of-work challenge and store it.
+
         Args:
             difficulty: Number of leading zeros required in hash
-        
+
         Returns:
             Challenge string in format 'difficulty:random_challenge'
         """
-        challenge = hashlib.sha256(str(time.time()).encode()).hexdigest()
-        return f"{difficulty}:{challenge}"
-    
+        # Generate unique challenge
+        challenge_hash = hashlib.sha256(
+            f"{time.time()}{len(self.pow_challenges)}".encode()
+        ).hexdigest()
+
+        # Store challenge with timestamp and difficulty
+        self.pow_challenges[challenge_hash] = (time.time(), difficulty)
+
+        # Clean up expired challenges (older than 5 minutes)
+        current_time = time.time()
+        expired = [
+            ch for ch, (ts, _) in self.pow_challenges.items()
+            if current_time - ts > 300
+        ]
+        for ch in expired:
+            del self.pow_challenges[ch]
+
+        return f"{difficulty}:{challenge_hash}"
+
     def verify_pow(self, challenge: str, nonce: str) -> bool:
         """Verify a proof-of-work solution.
-        
+
         Args:
             challenge: Original challenge in format 'difficulty:challenge_hash'
             nonce: Client's proposed nonce
-        
+
         Returns:
             True if the proof-of-work is valid
         """
         try:
             parts = challenge.split(':')
             if len(parts) != 2:
+                logger.warning("Invalid PoW challenge format")
                 return False
-            
+
             difficulty = int(parts[0])
             challenge_hash = parts[1]
-            
+
+            # Verify challenge was actually issued and not expired
+            if challenge_hash not in self.pow_challenges:
+                logger.warning(f"PoW challenge not found or expired: {challenge_hash[:16]}...")
+                return False
+
+            stored_time, stored_difficulty = self.pow_challenges[challenge_hash]
+
+            # Verify difficulty matches
+            if difficulty != stored_difficulty:
+                logger.warning(f"PoW difficulty mismatch: {difficulty} != {stored_difficulty}")
+                return False
+
+            # Verify not expired (5 minutes)
+            if time.time() - stored_time > 300:
+                logger.warning("PoW challenge expired")
+                del self.pow_challenges[challenge_hash]
+                return False
+
             # Compute hash of challenge + nonce
             solution = hashlib.sha256(f"{challenge_hash}{nonce}".encode()).hexdigest()
-            
+
             # Check if it has the required leading zeros
             required = '0' * difficulty
-            return solution.startswith(required)
+            is_valid = solution.startswith(required)
+
+            # Remove challenge after successful verification (one-time use)
+            if is_valid:
+                del self.pow_challenges[challenge_hash]
+
+            return is_valid
+
         except Exception as e:
             logger.error(f"PoW verification failed: {e}")
             return False

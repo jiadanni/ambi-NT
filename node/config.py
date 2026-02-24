@@ -6,7 +6,10 @@ Loads configuration from environment variables with sensible defaults.
 
 import os
 import uuid
-from typing import Optional
+import json
+import logging
+from typing import Optional, List
+from dotenv import load_dotenv
 
 
 class Config:
@@ -34,6 +37,10 @@ class Config:
         self.enable_proof_of_work = os.getenv("ENABLE_PROOF_OF_WORK", "false").lower() == "true"
         self.pow_difficulty = int(os.getenv("POW_DIFFICULTY", "4"))
         
+        # Audio/voice validation (anti-abuse)
+        self.max_audio_length_seconds = int(os.getenv("MAX_AUDIO_LENGTH_SECONDS", "60"))
+        self.max_transcription_tokens = int(os.getenv("MAX_TRANSCRIPTION_TOKENS", "500"))
+        
         # Authentication settings
         self.require_client_signature = os.getenv("REQUIRE_CLIENT_SIGNATURE", "false").lower() == "true"
         self.allowed_client_keys = os.getenv("ALLOWED_CLIENT_KEYS", "").split(",") if os.getenv("ALLOWED_CLIENT_KEYS") else []
@@ -41,9 +48,11 @@ class Config:
         # Cryptography
         self.node_private_key = os.getenv("NODE_PRIVATE_KEY")
         self.node_public_key = os.getenv("NODE_PUBLIC_KEY")
+        self.node_signing_private_key = os.getenv("NODE_SIGNING_PRIVATE_KEY")
+        self.node_signing_public_key = os.getenv("NODE_SIGNING_PUBLIC_KEY")
 
         # Coordinator (Phase 2+)
-        self.coordinator_url = os.getenv("COORDINATOR_URL", "")
+        self.coordinator_urls = self._parse_coordinator_urls()
         self.heartbeat_interval_seconds = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "60"))
 
         # Job management
@@ -52,6 +61,17 @@ class Config:
 
         # Debugging
         self.enable_debug_logs = os.getenv("ENABLE_DEBUG_LOGS", "false").lower() == "true"
+
+    def _parse_coordinator_urls(self) -> List[str]:
+        """Parse coordinator URLs from environment."""
+        # Check for multiple URLs first
+        urls_str = os.getenv("COORDINATOR_URLS", "")
+        if urls_str:
+            return [url.strip() for url in urls_str.split(",") if url.strip()]
+        
+        # Fallback to single URL
+        single_url = os.getenv("COORDINATOR_URL", "")
+        return [single_url] if single_url else []
 
     def validate(self) -> tuple[bool, Optional[str]]:
         """

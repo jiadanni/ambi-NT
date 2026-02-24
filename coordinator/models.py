@@ -13,7 +13,7 @@ Privacy Note:
 
 from datetime import datetime
 from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text, Index
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
@@ -43,6 +43,9 @@ class Node(Base):
     total_jobs_completed = Column(Integer, default=0)
     total_jobs_failed = Column(Integer, default=0)
 
+    # Heartbeat signature key (Ed25519 public key)
+    signature_public_key = Column(String(100))
+
     # Timing
     last_heartbeat = Column(DateTime, default=datetime.utcnow, nullable=False)
     first_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -59,6 +62,7 @@ class Node(Base):
         Index('idx_last_heartbeat', 'last_heartbeat'),
         Index('idx_uptime_score', 'uptime_score'),
         Index('idx_current_load', 'current_load'),
+        Index('idx_models', 'models'),  # For model-based discovery
     )
 
     def to_dict(self):
@@ -106,8 +110,8 @@ class Blocklist(Base):
 
     # Indexes
     __table_args__ = (
-        Index('idx_expires_at', 'expires_at'),
-        Index('idx_blocked_at', 'blocked_at'),
+        Index('idx_blocklist_expires_at', 'expires_at'),
+        Index('idx_blocklist_blocked_at', 'blocked_at'),
     )
 
 
@@ -178,6 +182,57 @@ class AbuseReport(Base):
     )
 
 
+class SessionMetadata(Base):
+    """
+    Lightweight session tracking for node affinity routing.
+    
+    Coordinator doesn't see session content (encrypted), but tracks:
+    - Which node is handling a session
+    - Session lifespan for cleanup
+    - Basic metrics for optimization
+    
+    This enables consistent routing for multi-turn conversations.
+    """
+    __tablename__ = 'sessions'
+    
+    # Identity
+    session_id = Column(String(36), primary_key=True)  # UUID from client
+    client_id_hash = Column(String(64), nullable=False)  # SHA256 of client pubkey
+    
+    # Node affinity
+    assigned_node_id = Column(String(36), nullable=False, index=True)
+    
+    # Lifecycle
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_activity = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    
+    # Metrics (for optimization, no privacy leak)
+    message_count = Column(Integer, default=0)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_sessions_expires_at', 'expires_at'),
+        Index('idx_client_id_hash', 'client_id_hash'),
+        Index('idx_last_activity', 'last_activity'),
+    )
+    
+    def is_expired(self):
+        """Check if session has expired."""
+        return datetime.utcnow() > self.expires_at
+    
+    def to_dict(self):
+        """Convert to dictionary for API responses."""
+        return {
+            'session_id': self.session_id,
+            'assigned_node_id': self.assigned_node_id,
+            'created_at': self.created_at.isoformat(),
+            'last_activity': self.last_activity.isoformat(),
+            'expires_at': self.expires_at.isoformat(),
+            'message_count': self.message_count,
+        }
+
+
 class CoordinatorStats(Base):
     """
     Aggregate statistics for the coordinator.
@@ -192,6 +247,7 @@ class CoordinatorStats(Base):
     total_nodes_ever = Column(Integer, default=0)
     active_nodes = Column(Integer, default=0)
     total_jobs_processed = Column(Integer, default=0)
+    active_sessions = Column(Integer, default=0)
 
     # Timing
     recorded_at = Column(DateTime, default=datetime.utcnow, nullable=False)

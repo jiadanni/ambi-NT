@@ -44,7 +44,7 @@ class FederationManager:
         # Initialize trust management
         self.trust_manager = TrustManager(
             coordinator_secret=config.coordinator_secret,
-            trusted_coordinators={}  # Will be populated from config/API
+            trusted_coordinators=config.trusted_coordinators
         )
         self.reputation_tracker = ReputationTracker()
 
@@ -151,13 +151,15 @@ class FederationManager:
 
     async def _merge_nodes(self, peer_nodes: List[dict], peer_url: str) -> int:
         """
-        Merge peer nodes into local database.
+        Merge peer nodes into local database with proper transaction isolation.
 
         Conflict resolution strategy:
         1. Use most recent last_heartbeat timestamp (newer wins)
         2. If node doesn't exist locally, add it
         3. Track federation_source for debugging
         4. Preserve better reputation scores
+
+        Uses row-level locking to prevent race conditions during concurrent syncs.
 
         Args:
             peer_nodes: List of node dictionaries from peer
@@ -166,15 +168,48 @@ class FederationManager:
         Returns:
             Number of nodes merged
         """
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+
         merged_count = 0
 
         with self.get_db_session() as db:
+            # Process each node within the same transaction
             for peer_node in peer_nodes:
                 try:
+                    if self.config.federation_trust_mode == "strict":
+                        if not peer_node.get("signature"):
+                            logger.warning(f"Missing signature from peer {peer_url}")
+                            continue
+
+                    if peer_node.get("signature"):
+                        signed_by = peer_node.get("signed_by") or peer_url
+                        if self.config.federation_trust_mode == "strict":
+                            if signed_by not in self.trust_manager.trusted_coordinators:
+                                logger.warning(f"Untrusted coordinator in strict mode: {signed_by}")
+                                continue
+                        node_payload = {
+                            "node_id": peer_node.get("node_id"),
+                            "address": peer_node.get("address"),
+                            "public_key": peer_node.get("public_key"),
+                            "models": peer_node.get("models"),
+                        }
+                        is_valid, error = self.trust_manager.verify_node_announcement(
+                            node_payload,
+                            peer_node.get("signature", ""),
+                            signed_by
+                        )
+                        if not is_valid:
+                            logger.warning(f"Invalid signature from peer {signed_by}: {error}")
+                            continue
+
                     node_id = peer_node['node_id']
 
-                    # Check if node exists locally
-                    local_node = db.query(Node).filter(Node.node_id == node_id).first()
+                    # Use SELECT FOR UPDATE to lock the row during this transaction
+                    # This prevents race conditions when multiple coordinators sync the same node
+                    local_node = db.query(Node).filter(
+                        Node.node_id == node_id
+                    ).with_for_update().first()
 
                     # Parse peer node data
                     address_parts = peer_node['address'].split(':')
@@ -183,18 +218,26 @@ class FederationManager:
 
                     if local_node:
                         # Node exists - apply conflict resolution
-                        
+
                         # Strategy 1: Compare uptime scores (prefer better reputation)
                         peer_uptime = peer_node.get('uptime_score', 0.0)
                         local_uptime = local_node.uptime_score
-                        
-                        # Strategy 2: If uptime is significantly better, update
-                        # Otherwise, prefer local data (trust direct heartbeats over federation)
+
+                        # Strategy 2: Compare last update times (prefer fresher data)
+                        peer_updated = peer_node.get('last_updated')
+                        if peer_updated and isinstance(peer_updated, str):
+                            try:
+                                peer_updated = datetime.fromisoformat(peer_updated.replace('Z', '+00:00'))
+                            except:
+                                peer_updated = None
+
+                        # Update if peer has significantly better uptime OR fresher data
                         uptime_diff = peer_uptime - local_uptime
-                        
-                        if uptime_diff > 0.05:  # 5% threshold
-                            # Peer has notably better reputation, update metrics
-                            local_node.uptime_score = peer_uptime
+                        is_fresher = peer_updated and (peer_updated > local_node.last_updated)
+
+                        if uptime_diff > 0.05 or is_fresher:  # 5% threshold or fresher
+                            # Peer has notably better data, update metrics
+                            local_node.uptime_score = max(peer_uptime, local_uptime)  # Take best
                             local_node.current_load = peer_node.get('current_load', 0.0)
                             local_node.federation_source = peer_url
                             local_node.last_updated = datetime.utcnow()
@@ -228,11 +271,86 @@ class FederationManager:
 
                 except Exception as e:
                     logger.error(f"Error merging node from {peer_url}: {e}")
+                    # Continue with other nodes even if one fails
                     continue
 
+            # Commit all changes in one transaction
+            # If this fails, all changes are rolled back atomically
             db.commit()
 
         return merged_count
+
+    async def sync_with_peers(self):
+        """
+        Simple gossip protocol for eventually-consistent node lists.
+        
+        This is a simplified version of federation sync:
+        1. Query each known peer for their node list
+        2. Merge their nodes with ours
+        3. Don't overthink it - eventually consistent is fine
+        
+        This method provides a cleaner API for simple federation use cases.
+        """
+        if not self.config.peer_coordinators:
+            logger.debug("No peers configured for gossip sync")
+            return
+        
+        logger.debug(f"Starting gossip sync with {len(self.config.peer_coordinators)} peers")
+        
+        for peer in self.config.peer_coordinators:
+            try:
+                # Get their node list
+                their_nodes = await self._get_peer_nodes(peer)
+                
+                if their_nodes:
+                    # Merge with ours
+                    merged = await self.merge_nodes(their_nodes, source=peer)
+                    logger.debug(f"Gossip sync: merged {merged} nodes from {peer}")
+                    
+            except Exception as e:
+                logger.warning(f"Gossip sync failed for peer {peer}: {e}")
+                continue
+    
+    async def _get_peer_nodes(self, peer_url: str) -> List[dict]:
+        """
+        Get node list from a peer coordinator.
+        
+        Args:
+            peer_url: URL of peer coordinator
+            
+        Returns:
+            List of node dictionaries, or empty list on failure
+        """
+        peer_url = peer_url.rstrip('/')
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{peer_url}/nodes/discover?limit=1000",
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        logger.warning(f"Peer {peer_url} returned HTTP {response.status}")
+                        return []
+                        
+        except Exception as e:
+            logger.debug(f"Failed to get nodes from {peer_url}: {e}")
+            return []
+    
+    async def merge_nodes(self, nodes: List[dict], source: str) -> int:
+        """
+        Merge node list from a peer, using simple eventually-consistent logic.
+        
+        Args:
+            nodes: List of node dictionaries
+            source: Source identifier (peer URL or coordinator ID)
+            
+        Returns:
+            Number of nodes merged/updated
+        """
+        return await self._merge_nodes(nodes, source)
 
     def _update_peer_status(self, peer_url: str, status: str, success: bool):
         """

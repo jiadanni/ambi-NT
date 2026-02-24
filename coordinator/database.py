@@ -31,15 +31,33 @@ class Database:
         """
         self.database_url = database_url
 
+        # SQLite needs check_same_thread=False for multi-threaded/async use
+        connect_args = {}
+        poolclass = QueuePool
+        if database_url.startswith("sqlite"):
+            connect_args["check_same_thread"] = False
+            if database_url == "sqlite:///:memory:":
+                from sqlalchemy.pool import StaticPool
+                poolclass = StaticPool
+
         # Create engine with connection pooling
-        self.engine = create_engine(
-            database_url,
-            poolclass=QueuePool,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,  # Verify connections before using
-            echo=False,  # Set to True for SQL debugging
-        )
+        engine_args = {
+            "connect_args": connect_args,
+            "poolclass": poolclass,
+            "pool_pre_ping": True,
+            "pool_recycle": 3600,
+            "echo": False,
+        }
+
+        # QueuePool specific arguments
+        if poolclass == QueuePool:
+            engine_args.update({
+                "pool_size": 100,
+                "max_overflow": 100,
+                "pool_timeout": 30,
+            })
+
+        self.engine = create_engine(database_url, **engine_args)
 
         # Create session factory
         self.SessionLocal = sessionmaker(
@@ -108,6 +126,24 @@ class Database:
         Use get_session() context manager instead when possible.
         """
         return self.SessionLocal()
+
+    def get_pool_status(self) -> dict:
+        """
+        Get current connection pool statistics.
+
+        Returns:
+            Dictionary with pool metrics
+        """
+        pool = self.engine.pool
+        return {
+            "pool_size": pool.size(),
+            "checked_in": pool.checkedin(),
+            "checked_out": pool.checkedout(),
+            "overflow": pool.overflow(),
+            "total_connections": pool.size() + pool.overflow(),
+            "max_overflow": pool._max_overflow,
+            "utilization": pool.checkedout() / (pool.size() + pool.overflow()) if (pool.size() + pool.overflow()) > 0 else 0
+        }
 
     def close(self):
         """Close database engine and cleanup connections."""

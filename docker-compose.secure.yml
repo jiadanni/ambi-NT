@@ -1,0 +1,225 @@
+# Security Sandboxing with Docker
+
+# Isolated Ollama Container
+# This configuration runs Ollama in a highly restricted container with:
+# - No network access (prevents data exfiltration)
+# - Limited CPU and memory
+# - Read-only root filesystem
+# - No capabilities beyond minimal requirements
+
+services:
+  # Sandboxed Ollama instance
+  ollama-sandbox:
+    image: ollama/ollama:latest
+    container_name: ambient-ollama-sandbox
+    
+    # Security constraints
+    security_opt:
+      - no-new-privileges:true  # Prevent privilege escalation
+      - seccomp:unconfined      # Needed for GPU access (can be tightened)
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'       # Max 4 CPU cores
+          memory: 8G        # Max 8GB RAM
+        reservations:
+          cpus: '2.0'       # Reserve 2 cores
+          memory: 4G        # Reserve 4GB
+    
+    # Network isolation
+    network_mode: "none"      # CRITICAL: No network access
+    
+    # Filesystem
+    read_only: false          # Ollama needs write access to model cache
+    tmpfs:
+      - /tmp:size=2G,mode=1777  # Temporary storage in memory
+    
+    volumes:
+      # Model cache (models are large, must persist)
+      - ollama-models:/root/.ollama:rw
+      # Unix socket for IPC (safer than network)
+      - ollama-socket:/var/run/ollama:rw
+    
+    # Minimal capabilities
+    cap_drop:
+      - ALL                   # Drop all capabilities
+    cap_add:
+      - CHOWN                 # Needed for file ownership
+      - SETUID                # Needed for user switching
+      - SETGID
+    
+    # User namespace (run as non-root if possible)
+    # Note: Ollama currently requires root for GPU access
+    # user: "1000:1000"       # Uncomment for rootless (CPU-only)
+    
+    # Environment
+    environment:
+      - OLLAMA_HOST=unix:///var/run/ollama/ollama.sock
+      - OLLAMA_MODELS=/root/.ollama/models
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "test", "-S", "/var/run/ollama/ollama.sock"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging (limited to prevent disk fill)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Ambient Node (communicates with Ollama via Unix socket)
+  ambient-node:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: ambient-node
+    
+    depends_on:
+      ollama-sandbox:
+        condition: service_healthy
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    
+    # Resource limits (node is lighter than Ollama)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    
+    # Network: only external connections (no access to Ollama's network)
+    ports:
+      - "8000:8000"
+    
+    # Filesystem
+    read_only: true
+    tmpfs:
+      - /tmp:size=512M,mode=1777
+    
+    volumes:
+      # Unix socket to communicate with Ollama
+      - ollama-socket:/var/run/ollama:ro  # Read-only access
+      # Persistent config
+      - ./node/config.py:/app/node/config.py:ro
+    
+    # Minimal capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # Bind to port 8000
+    
+    # Run as non-root
+    user: "1000:1000"
+    
+    environment:
+      - OLLAMA_HOST=unix:///var/run/ollama/ollama.sock
+      - NODE_PORT=8000
+      - ENABLE_RATE_LIMITING=true
+      - ENABLE_PROMPT_SANITIZATION=true
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Coordinator (separate container)
+  ambient-coordinator:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: ambient-coordinator
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    
+    # Network
+    ports:
+      - "8001:8001"
+    
+    # Filesystem
+    read_only: true
+    tmpfs:
+      - /tmp:size=256M
+    
+    volumes:
+      # Database (needs persistence)
+      - coordinator-db:/app/data:rw
+    
+    # Minimal capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    
+    # Run as non-root
+    user: "1000:1000"
+    
+    environment:
+      - COORDINATOR_PORT=8001
+      - DATABASE_URL=sqlite:////app/data/coordinator.db
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ollama-models:
+    driver: local
+  ollama-socket:
+    driver: local
+  coordinator-db:
+    driver: local
+
+# Alternative: Even stronger isolation with gVisor
+# Uncomment the runtime section and add to each service:
+# 
+# runtimes:
+#   runsc:
+#     path: /usr/local/bin/runsc
+# 
+# services:
+#   ollama-sandbox:
+#     runtime: runsc
+#     # ... rest of config

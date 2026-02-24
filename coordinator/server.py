@@ -17,8 +17,11 @@ import os
 import sys
 import logging
 import asyncio
+import json
+import base64
+import time
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Depends, Request
@@ -26,6 +29,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel, Field
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+import nacl.signing
+import nacl.encoding
 
 from coordinator.config import CoordinatorConfig
 from coordinator.database import Database, get_db
@@ -47,6 +57,10 @@ database = Database(config.database_url)
 # Initialize federation manager
 federation_manager = FederationManager(config, database.get_session)
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+logger.info("Rate limiter initialized")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -62,8 +76,8 @@ async def lifespan(app: FastAPI):
 
     # Create database tables
     try:
-        database.create_tables()
-        logger.info("Database tables initialized")
+        pass # database.create_tables()
+        # logger.info("Database tables initialized")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         sys.exit(1)
@@ -92,10 +106,17 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(
     title="Ambient Intelligence Coordinator",
-    description="Decentralized node discovery and coordination service",
-    version="0.2.0",
-    lifespan=lifespan
+    description="Decentralized node discovery and coordination service with federation support",
+    version="0.3.0",
+    lifespan=lifespan,
+    docs_url="/docs",  # Swagger UI at http://localhost:5000/docs
+    redoc_url="/redoc",  # ReDoc UI at http://localhost:5000/redoc
+    openapi_url="/openapi.json"  # OpenAPI schema
 )
+
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Enable CORS
 if config.enable_cors:
@@ -122,6 +143,9 @@ class NodeHeartbeat(BaseModel):
     max_concurrent: int = Field(1, description="Max concurrent jobs")
     current_load: float = Field(0.0, description="Current load (0.0-1.0)")
     version: Optional[str] = Field(None, description="Node software version")
+    timestamp: Optional[int] = Field(None, description="Heartbeat timestamp (epoch seconds)")
+    signature: Optional[str] = Field(None, description="Base64-encoded Ed25519 signature")
+    signature_pubkey: Optional[str] = Field(None, description="Base64-encoded Ed25519 public key")
 
 
 class NodeInfo(BaseModel):
@@ -134,6 +158,8 @@ class NodeInfo(BaseModel):
     uptime_score: float
     max_concurrent: int
     success_rate: float
+    signature: Optional[str] = None
+    signed_by: Optional[str] = None
 
 
 class ReportAbuseRequest(BaseModel):
@@ -153,36 +179,139 @@ class TokenBalanceResponse(BaseModel):
     is_node_operator: bool
 
 
+def _canonicalize_heartbeat(heartbeat: NodeHeartbeat) -> str:
+    """Create a canonical JSON string for heartbeat signature verification."""
+    payload = {
+        "node_id": heartbeat.node_id,
+        "ip_address": heartbeat.ip_address,
+        "port": heartbeat.port,
+        "public_key": heartbeat.public_key,
+        "models": heartbeat.models,
+        "max_concurrent": heartbeat.max_concurrent,
+        "current_load": heartbeat.current_load,
+        "version": heartbeat.version,
+        "timestamp": heartbeat.timestamp,
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _verify_heartbeat_signature(heartbeat: NodeHeartbeat) -> Tuple[bool, str]:
+    """Verify node heartbeat signature."""
+    if not heartbeat.signature or not heartbeat.signature_pubkey:
+        return False, "Missing heartbeat signature or public key"
+
+    if heartbeat.timestamp is None:
+        return False, "Missing heartbeat timestamp"
+
+    if config.node_signature_max_age_seconds > 0:
+        age = abs(time.time() - heartbeat.timestamp)
+        if age > config.node_signature_max_age_seconds:
+            return False, f"Heartbeat timestamp too old ({age:.0f}s)"
+
+    try:
+        verify_key = nacl.signing.VerifyKey(
+            heartbeat.signature_pubkey,
+            encoder=nacl.encoding.Base64Encoder
+        )
+        signature = base64.b64decode(heartbeat.signature)
+        message = _canonicalize_heartbeat(heartbeat).encode("utf-8")
+        verify_key.verify(message, signature)
+        return True, ""
+    except Exception as e:
+        return False, f"Invalid signature: {e}"
+
+
 # ============================================
 # Endpoints
 # ============================================
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "version": "0.2.0",
-        "timestamp": datetime.utcnow().isoformat()
+async def health_check(db: Session = Depends(lambda: database.get_session_direct())):
+    """
+    Health check endpoint with database connectivity verification.
+
+    Returns:
+        Health status including database connection and pool stats
+    """
+    db_healthy = False
+    db_error = None
+    pool_stats = None
+
+    try:
+        # Verify database connection with simple query
+        db.execute("SELECT 1")
+        db.commit()
+        db_healthy = True
+
+        # Get connection pool statistics
+        pool_stats = database.get_pool_status()
+
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        db_error = str(e)
+    finally:
+        db.close()
+
+    # Determine overall health status
+    status = "healthy" if db_healthy else "degraded"
+
+    response = {
+        "status": status,
+        "version": "0.3.0",
+        "timestamp": datetime.utcnow().isoformat(),
+        "database": {
+            "connected": db_healthy,
+            "error": db_error
+        }
     }
+
+    # Include pool stats if available
+    if pool_stats:
+        response["database"]["pool"] = pool_stats
+
+    return response
 
 
 @app.post("/nodes/announce")
+@limiter.limit("12/minute")  # Allow heartbeat every 5 seconds with buffer
 async def announce_node(
+    request: Request,
     heartbeat: NodeHeartbeat,
     db: Session = Depends(lambda: database.get_session_direct())
 ):
     """
     Nodes call this every 60 seconds to stay in the active pool.
 
+    Rate limit: 12/minute per IP (allows one heartbeat every 5 seconds)
+
     This is the only way nodes become discoverable. If they stop
     sending heartbeats, they're automatically removed after timeout.
     """
     try:
+        if config.require_node_signature:
+            is_valid, error = _verify_heartbeat_signature(heartbeat)
+            if not is_valid:
+                logger.warning(f"Rejected heartbeat from {heartbeat.node_id}: {error}")
+                raise HTTPException(status_code=403, detail=error)
+
         # Check if node exists
         node = db.query(Node).filter(Node.node_id == heartbeat.node_id).first()
 
         if node:
+            if node.signature_public_key and not heartbeat.signature_pubkey:
+                logger.warning(
+                    "Missing signature key for node %s",
+                    heartbeat.node_id
+                )
+                raise HTTPException(status_code=403, detail="Missing signature key")
+            if node.signature_public_key and heartbeat.signature_pubkey:
+                if node.signature_public_key != heartbeat.signature_pubkey:
+                    logger.warning(
+                        "Signature key mismatch for node %s",
+                        heartbeat.node_id
+                    )
+                    raise HTTPException(status_code=403, detail="Signature key mismatch")
+
             # Update existing node
             node.ip_address = heartbeat.ip_address
             node.port = heartbeat.port
@@ -193,6 +322,8 @@ async def announce_node(
             node.last_heartbeat = datetime.utcnow()
             if heartbeat.version:
                 node.version = heartbeat.version
+            if heartbeat.signature_pubkey:
+                node.signature_public_key = heartbeat.signature_pubkey
 
             # Update uptime score (increases over time)
             node.uptime_score = min(100.0, node.uptime_score + 0.1)
@@ -210,7 +341,8 @@ async def announce_node(
                 current_load=heartbeat.current_load,
                 uptime_score=0.0,
                 last_heartbeat=datetime.utcnow(),
-                version=heartbeat.version
+                version=heartbeat.version,
+                signature_public_key=heartbeat.signature_pubkey
             )
             db.add(node)
 
@@ -229,6 +361,9 @@ async def announce_node(
 
         return {"status": "ok", "node_id": heartbeat.node_id}
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"Error processing heartbeat: {e}")
@@ -238,7 +373,9 @@ async def announce_node(
 
 
 @app.get("/nodes/discover", response_model=List[NodeInfo])
+@limiter.limit("60/minute")  # 60 requests per minute per IP
 async def discover_nodes(
+    request: Request,
     model: Optional[str] = None,
     min_uptime: float = 0.0,
     limit: int = 10,
@@ -246,6 +383,8 @@ async def discover_nodes(
 ):
     """
     Clients call this to find available nodes.
+
+    Rate limit: 60/minute per IP (1 request per second average)
 
     Returns nodes that:
     - Have sent a heartbeat in the last timeout period
@@ -278,17 +417,30 @@ async def discover_nodes(
         ).limit(limit).all()
 
         # Convert to response format
+        signed_by = config.coordinator_public_url or f"http://{config.host}:{config.coordinator_port}"
         result = []
         for node in nodes:
+            node_payload = {
+                "node_id": node.node_id,
+                "address": f"{node.ip_address}:{node.port}",
+                "public_key": node.public_key,
+                "models": node.models.split(',') if node.models else [],
+            }
+            signature = None
+            if config.coordinator_secret:
+                signature = federation_manager.trust_manager.sign_node_announcement(node_payload)
+
             result.append(NodeInfo(
                 node_id=node.node_id,
-                address=f"{node.ip_address}:{node.port}",
-                public_key=node.public_key,
-                models=node.models.split(',') if node.models else [],
+                address=node_payload["address"],
+                public_key=node_payload["public_key"],
+                models=node_payload["models"],
                 current_load=node.current_load,
                 uptime_score=node.uptime_score,
                 max_concurrent=node.max_concurrent,
-                success_rate=node._calculate_success_rate()
+                success_rate=node._calculate_success_rate(),
+                signature=signature,
+                signed_by=signed_by
             ))
 
         logger.debug(f"Discovery returned {len(result)} nodes")
@@ -302,12 +454,16 @@ async def discover_nodes(
 
 
 @app.post("/abuse/report")
+@limiter.limit("30/minute")  # 30 abuse reports per minute per IP
 async def report_abuse(
+    request: Request,
     report: ReportAbuseRequest,
     db: Session = Depends(lambda: database.get_session_direct())
 ):
     """
     Nodes can report abusive IPs.
+
+    Rate limit: 30/minute per IP (prevents report spam)
 
     If an IP gets reported by multiple nodes (threshold), it's auto-blocked.
     This is gossip-based reputation without central authority.
@@ -448,8 +604,13 @@ async def get_token_balance(
 
 
 @app.get("/stats")
-async def get_statistics(db: Session = Depends(lambda: database.get_session_direct())):
-    """Get network statistics."""
+@limiter.limit("120/minute")  # 120 requests per minute per IP
+async def get_statistics(request: Request, db: Session = Depends(lambda: database.get_session_direct())):
+    """
+    Get network statistics.
+
+    Rate limit: 120/minute per IP (2 requests per second for monitoring dashboards)
+    """
     try:
         # Count active nodes
         cutoff = datetime.utcnow() - timedelta(seconds=config.node_heartbeat_timeout)
@@ -490,7 +651,8 @@ async def get_statistics(db: Session = Depends(lambda: database.get_session_dire
 # ============================================
 
 @app.get("/federation/peers")
-async def get_federation_peers():
+@limiter.limit("10/minute")
+async def get_federation_peers(request: Request):
     """Get list of peer coordinators and their status."""
     if not config.federation_enabled:
         raise HTTPException(status_code=404, detail="Federation not enabled")
@@ -505,7 +667,8 @@ async def get_federation_peers():
 
 
 @app.post("/federation/register")
-async def register_federation_peer(request: dict):
+@limiter.limit("5/minute")
+async def register_federation_peer(request_data: dict, request: Request):
     """
     Register a new peer coordinator.
 
@@ -533,7 +696,8 @@ async def register_federation_peer(request: dict):
 
 
 @app.get("/federation/stats")
-async def get_federation_stats():
+@limiter.limit("10/minute")
+async def get_federation_stats(request: Request):
     """Get federation statistics."""
     if not config.federation_enabled:
         raise HTTPException(status_code=404, detail="Federation not enabled")

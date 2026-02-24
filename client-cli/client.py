@@ -124,6 +124,7 @@ class AmbientClient:
             try:
                 response = requests.get(
                     f"{self.node_url}/status/{job_id}",
+                    params={"client_pubkey": client_pubkey_b64},
                     timeout=5
                 )
                 response.raise_for_status()

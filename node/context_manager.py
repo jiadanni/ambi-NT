@@ -29,9 +29,13 @@ class ContextManager:
         """
         Estimate token count for text.
 
-        Uses a conservative heuristic:
-        - ~4 characters per token on average for English
-        - Plus word count (for more accurate estimation)
+        Uses improved heuristic that accounts for:
+        - Average token length varies by language and content type
+        - Code/technical text: ~3.5 chars/token
+        - Natural language: ~4 chars/token
+        - Most words are 1-2 tokens
+
+        For production accuracy, consider using tiktoken library.
 
         Args:
             text: Text to estimate tokens for
@@ -39,10 +43,23 @@ class ContextManager:
         Returns:
             Estimated token count
         """
-        # Conservative estimate: char_count/4 + word_count
-        char_estimate = len(text) // 4
-        word_estimate = len(text.split())
-        return char_estimate + word_estimate
+        if not text:
+            return 0
+
+        # Count words and characters
+        words = text.split()
+        chars = len(text)
+
+        # Character-based estimate: average 3.5 chars/token
+        # This is more accurate than 4 for typical LLM tokenization
+        char_based = int(chars / 3.5)
+
+        # Word-based estimate: average 1.3 tokens/word
+        # Accounts for multi-token words and punctuation
+        word_based = int(len(words) * 1.3)
+
+        # Use maximum for conservative estimate (prevents context overflow)
+        return max(char_based, word_based)
 
     def estimate_message_tokens(self, message: Message) -> int:
         """
