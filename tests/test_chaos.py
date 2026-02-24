@@ -230,6 +230,8 @@ async def test_circuit_breaker_pattern():
     """Test circuit breaker prevents cascading failures."""
     chaos = ChaosSimulator()
     chaos.set_severe_chaos()
+    # Force failures to ensure circuit breaker triggers consistently
+    chaos.failure_rate = 1.0
     
     class CircuitBreaker:
         def __init__(self, failure_threshold: int = 5, timeout: float = 2.0):

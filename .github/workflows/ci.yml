@@ -34,6 +34,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r tests/requirements.txt
         pip install -r node/requirements.txt
+        pip install -r coordinator/requirements.txt
         pip install -r client-cli/requirements.txt
         pip install aiohttp  # For load testing
     

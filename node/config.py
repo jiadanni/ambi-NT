@@ -30,6 +30,7 @@ class Config:
 
         # Security settings
         self.enable_rate_limiting = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
+        self.redis_url = os.getenv("REDIS_URL", None)
         self.rate_limit_per_client = int(os.getenv("RATE_LIMIT_PER_CLIENT", "10"))
         self.rate_limit_global = int(os.getenv("RATE_LIMIT_GLOBAL", "100"))
         self.enable_prompt_sanitization = os.getenv("ENABLE_PROMPT_SANITIZATION", "true").lower() == "true"

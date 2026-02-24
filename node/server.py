@@ -25,11 +25,14 @@ import struct
 import json
 from datetime import datetime
 from typing import Dict, Optional, List
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 
+from utils.telemetry import setup_telemetry
 from node.crypto import NodeCrypto, generate_keypair
 import nacl.signing
 import nacl.encoding
@@ -215,7 +218,8 @@ async def lifespan(app: FastAPI):
     if config.enable_rate_limiting:
         rate_limiter = RateLimiter(
             max_requests_per_minute=config.rate_limit_per_client,
-            max_global_per_minute=config.rate_limit_global
+            max_global_per_minute=config.rate_limit_global,
+            redis_url=config.redis_url
         )
         logger.info(f"Rate limiting enabled: {config.rate_limit_per_client}/min per client, {config.rate_limit_global}/min global")
     else:
@@ -327,6 +331,15 @@ app = FastAPI(
     openapi_url="/openapi.json"  # OpenAPI schema
 )
 
+# Setup Tracing
+tracer = setup_telemetry("ambi-node")
+if tracer:
+    # Instrument incoming FastAPI requests
+    FastAPIInstrumentor.instrument_app(app)
+    # Instrument outgoing aiohttp calls
+    AioHttpClientInstrumentor().instrument()
+    logger.info("OpenTelemetry tracing enabled")
+
 # Enable CORS for web clients
 app.add_middleware(
     CORSMiddleware,
@@ -400,81 +413,87 @@ async def submit_job(request: SubmitJobRequest):
     - Optional proof-of-work
     - Optional client allowlisting
     """
-    job_id = str(uuid.uuid4())
+    ctx = tracer.start_as_current_span("process_job_submission") if tracer else nullcontext()
 
-    # SECURITY CHECK 1: Rate limiting
-    if rate_limiter and config.enable_rate_limiting:
-        # Check if client is blocked by auth failures
-        if rate_limiter.is_blocked_by_auth_failures(request.client_pubkey):
-            logger.warning(f"Job {job_id} rejected: Client blocked due to auth failures")
-            raise HTTPException(
-                status_code=429,
-                detail="Too many failed authentication attempts. Please try again later."
-            )
-        
-        # Check rate limits
-        allowed, wait_time, reason = rate_limiter.is_allowed(request.client_pubkey)
-        if not allowed:
-            logger.warning(f"Job {job_id} rejected: {reason}")
-            rate_limit_hits_total.inc()
-            prompt_rejected_total.inc()
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded. Try again in {wait_time} seconds. Reason: {reason}"
-            )
+    with ctx as span:
+        if span:
+             span.set_attribute("client_id", request.client_pubkey[:8])
 
-    # SECURITY CHECK 2: Client allowlist (if configured)
-    if config.allowed_client_keys and len(config.allowed_client_keys) > 0:
-        if request.client_pubkey not in config.allowed_client_keys:
-            logger.warning(f"Job {job_id} rejected: Client not in allowlist")
-            if rate_limiter:
-                rate_limiter.record_auth_failure(request.client_pubkey)
-            prompt_rejected_total.inc()
-            raise HTTPException(
-                status_code=403,
-                detail="Client public key not authorized"
-            )
+        job_id = str(uuid.uuid4())
 
-    # SECURITY CHECK 3: Proof-of-work (if enabled)
-    if config.enable_proof_of_work and rate_limiter:
-        if not request.proof_of_work_nonce or not request.pow_challenge:
-            # Generate challenge and require PoW
-            challenge = rate_limiter.generate_pow_challenge(config.pow_difficulty)
-            logger.info(f"Job {job_id} requires proof-of-work (difficulty: {config.pow_difficulty})")
-            pow_challenges_issued_total.inc()
-            return SubmitJobResponse(
-                job_id=job_id,
-                estimated_wait_seconds=0,
-                requires_proof_of_work=True,
-                pow_challenge=challenge
-            )
+        # SECURITY CHECK 1: Rate limiting
+        if rate_limiter and config.enable_rate_limiting:
+            # Check if client is blocked by auth failures
+            if rate_limiter.is_blocked_by_auth_failures(request.client_pubkey):
+                logger.warning(f"Job {job_id} rejected: Client blocked due to auth failures")
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many failed authentication attempts. Please try again later."
+                )
 
-        # Verify proof-of-work with the challenge provided by client
-        if not rate_limiter.verify_pow(request.pow_challenge, request.proof_of_work_nonce):
-            logger.warning(f"Job {job_id} rejected: Invalid proof-of-work")
-            prompt_rejected_total.inc()
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid proof-of-work solution"
-            )
+            # Check rate limits
+            allowed, wait_time, reason = rate_limiter.is_allowed(request.client_pubkey)
+            if not allowed:
+                logger.warning(f"Job {job_id} rejected: {reason}")
+                rate_limit_hits_total.inc()
+                prompt_rejected_total.inc()
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded. Try again in {wait_time} seconds. Reason: {reason}"
+                )
 
-    # Log that we received a job, but never log the encrypted content
-    logger.info(f"Received job {job_id} from client")
+        # SECURITY CHECK 2: Client allowlist (if configured)
+        if config.allowed_client_keys and len(config.allowed_client_keys) > 0:
+            if request.client_pubkey not in config.allowed_client_keys:
+                logger.warning(f"Job {job_id} rejected: Client not in allowlist")
+                if rate_limiter:
+                    rate_limiter.record_auth_failure(request.client_pubkey)
+                prompt_rejected_total.inc()
+                raise HTTPException(
+                    status_code=403,
+                    detail="Client public key not authorized"
+                )
 
-    # Create job record
-    job = Job(job_id=job_id, client_pubkey=request.client_pubkey)
-    jobs[job_id] = job
+        # SECURITY CHECK 3: Proof-of-work (if enabled)
+        if config.enable_proof_of_work and rate_limiter:
+            if not request.proof_of_work_nonce or not request.pow_challenge:
+                # Generate challenge and require PoW
+                challenge = rate_limiter.generate_pow_challenge(config.pow_difficulty)
+                logger.info(f"Job {job_id} requires proof-of-work (difficulty: {config.pow_difficulty})")
+                pow_challenges_issued_total.inc()
+                return SubmitJobResponse(
+                    job_id=job_id,
+                    estimated_wait_seconds=0,
+                    requires_proof_of_work=True,
+                    pow_challenge=challenge
+                )
 
-    jobs_submitted_total.inc()
+            # Verify proof-of-work with the challenge provided by client
+            if not rate_limiter.verify_pow(request.pow_challenge, request.proof_of_work_nonce):
+                logger.warning(f"Job {job_id} rejected: Invalid proof-of-work")
+                prompt_rejected_total.inc()
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid proof-of-work solution"
+                )
 
-    # Process job asynchronously with concurrency limits
-    asyncio.create_task(process_job_with_semaphore(job_id, request))
+        # Log that we received a job, but never log the encrypted content
+        logger.info(f"Received job {job_id} from client")
 
-    return SubmitJobResponse(
-        job_id=job_id,
-        estimated_wait_seconds=0,  # Phase 0: Immediate processing
-        requires_proof_of_work=False
-    )
+        # Create job record
+        job = Job(job_id=job_id, client_pubkey=request.client_pubkey)
+        jobs[job_id] = job
+
+        jobs_submitted_total.inc()
+
+        # Process job asynchronously with concurrency limits
+        asyncio.create_task(process_job_with_semaphore(job_id, request))
+
+        return SubmitJobResponse(
+            job_id=job_id,
+            estimated_wait_seconds=0,  # Phase 0: Immediate processing
+            requires_proof_of_work=False
+        )
 
 
 async def validate_audio_request(encrypted_audio: str) -> tuple[bool, str]:

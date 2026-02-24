@@ -26,6 +26,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
+
+from utils.telemetry import setup_telemetry
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel, Field
@@ -113,6 +117,15 @@ app = FastAPI(
     redoc_url="/redoc",  # ReDoc UI at http://localhost:5000/redoc
     openapi_url="/openapi.json"  # OpenAPI schema
 )
+
+# Setup Tracing
+tracer = setup_telemetry("ambi-coordinator")
+if tracer:
+    # Instrument incoming FastAPI requests
+    FastAPIInstrumentor.instrument_app(app)
+    # Instrument outgoing aiohttp calls
+    AioHttpClientInstrumentor().instrument()
+    logger.info("OpenTelemetry tracing enabled")
 
 # Add rate limiter to app state
 app.state.limiter = limiter
